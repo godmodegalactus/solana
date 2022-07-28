@@ -468,7 +468,24 @@ fn main() {
         .iter()
         .map(|account_keys| {
             let _exit_signal = exit_signal.clone();
-            let tpu_client = tpu_client.clone();
+            let connection_cache = Arc::new(ConnectionCache::default());
+
+            let rpc_client = Arc::new(RpcClient::new_with_commitment(
+                json_rpc_url.to_string(),
+                CommitmentConfig::confirmed(),
+            ));
+
+            // having a tpu client for each MM
+            let tpu_client = Arc::new(
+                TpuClient::new_with_connection_cache(
+                    rpc_client,
+                    &websocket_url,
+                    solana_client::tpu_client::TpuClientConfig::default(),
+                    connection_cache,
+                )
+                .unwrap(),
+            );
+
             let blockhash = blockhash.clone();
             let duration = duration.clone();
             let quotes_per_second = quotes_per_second.clone();
@@ -485,8 +502,6 @@ fn main() {
             );
 
             let tx_record_sx = tx_record_sx.clone();
-            let tpu_client = tpu_client.clone();
-            let blockhash = blockhash.clone();
 
             Builder::new()
                 .name("solana-client-sender".to_string())
@@ -594,7 +609,7 @@ fn main() {
                     //     error_count += errors;
                     //     timeout_count += timeouts;
                     // }
-                    sleep(Duration::from_millis(100)); // so the confirmation thread does not spam a lot the rpc node
+                    // sleep(Duration::from_millis(100)); // so the confirmation thread does not spam a lot the rpc node
                 }
                 {
                     if recv_until_confirm == 0 && not_confirmed.read().unwrap().len() == 0 {
