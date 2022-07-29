@@ -34,6 +34,7 @@ use solana_transaction_status::{TransactionDetails, UiTransactionEncoding};
 use core::time;
 use std::{
     collections::HashMap,
+    collections::VecDeque,
     fs,
     ops::{Div, Mul},
     str::FromStr,
@@ -116,6 +117,29 @@ struct PerpMarketCache {
     pub perp_market: PerpMarket,
 }
 
+struct RotatingQueue<T> {
+    deque: VecDeque<T>,
+}
+
+impl<T: Clone> RotatingQueue<T> {
+    pub fn new(size: usize, creator_functor: fn() -> T) -> Self {
+        let mut item = Self {
+            deque: VecDeque::<T>::new(),
+        };
+
+        for _i in 0..size {
+            item.deque.push_back(creator_functor());
+        }
+        item
+    }
+
+    pub fn get(&mut self) -> T {
+        let current = self.deque.pop_front().unwrap();
+        self.deque.push_back(current.clone());
+        current
+    }
+}
+
 fn poll_blockhash(
     exit_signal: &Arc<AtomicBool>,
     blockhash: &Arc<RwLock<Hash>>,
@@ -139,7 +163,7 @@ fn poll_blockhash(
             }
         }
 
-        sleep(Duration::from_millis(1000));
+        sleep(Duration::from_millis(500));
     }
 }
 
@@ -159,10 +183,10 @@ fn send_mm_transactions(
     quotes_per_second: u64,
     perp_market_caches: &Vec<PerpMarketCache>,
     tx_record_sx: &Sender<TransactionSendRecord>,
-    tpu_client: &Arc<TpuClient>,
+    tpu_client_pool: Arc<RwLock<RotatingQueue<Arc<TpuClient>>>>,
     mango_account_pk: Pubkey,
     mango_account_signer: &Keypair,
-    blockhash: &Arc<RwLock<Hash>>,
+    blockhash: Arc<RwLock<Hash>>,
 ) {
     // update quotes 2x per second
     for _ in 0..quotes_per_second {
@@ -376,20 +400,31 @@ fn main() {
         .find(|g| g.name == mango_group_id)
         .unwrap();
 
-    let rpc_client = Arc::new(RpcClient::new_with_commitment(
-        json_rpc_url.to_string(),
-        CommitmentConfig::confirmed(),
-    ));
+    let number_of_tpu_clients: usize = 1000;
+    let rpc_client_for_tpu_client =
+        RotatingQueue::<Arc<RpcClient>>::new(number_of_tpu_clients, || {
+            Arc::new(RpcClient::new_with_commitment(
+                json_rpc_url.to_string(),
+                CommitmentConfig::confirmed(),
+            ))
+        });
+
     let connection_cache = Arc::new(ConnectionCache::default());
-    let tpu_client = Arc::new(
-        TpuClient::new_with_connection_cache(
-            rpc_client.clone(),
-            &websocket_url,
-            solana_client::tpu_client::TpuClientConfig::default(),
-            connection_cache,
-        )
-        .unwrap(),
-    );
+
+    let tpu_client_pool = Arc::new(RwLock::new(RotatingQueue::<Arc<TpuClient>>::new(
+        number_of_tpu_clients,
+        || {
+            Arc::new(
+                TpuClient::new_with_connection_cache(
+                    rpc_client_for_tpu_client.get(),
+                    &websocket_url,
+                    solana_client::tpu_client::TpuClientConfig::default(),
+                    connection_cache,
+                )
+                .unwrap(),
+            )
+        },
+    )));
 
     info!(
         "accounts:{:?} markets:{:?} quotes_per_second:{:?} expected_tps:{:?} duration:{:?}",
