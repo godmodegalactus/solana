@@ -118,24 +118,30 @@ struct PerpMarketCache {
 }
 
 struct RotatingQueue<T> {
-    deque: VecDeque<T>,
+    deque: Arc<RwLock<VecDeque<T>>>,
 }
 
 impl<T: Clone> RotatingQueue<T> {
-    pub fn new(size: usize, creator_functor: fn() -> T) -> Self {
+    pub fn new<F>(size: usize, creator_functor: F) -> Self
+    where
+        F: Fn() -> T,
+    {
         let mut item = Self {
-            deque: VecDeque::<T>::new(),
+            deque: Arc::new(RwLock::new(VecDeque::<T>::new())),
         };
-
-        for _i in 0..size {
-            item.deque.push_back(creator_functor());
+        {
+            let mut deque = item.deque.write().unwrap();
+            for _i in 0..size {
+                deque.push_back(creator_functor());
+            }
         }
         item
     }
 
-    pub fn get(&mut self) -> T {
-        let current = self.deque.pop_front().unwrap();
-        self.deque.push_back(current.clone());
+    pub fn get(&self) -> T {
+        let mut deque = self.deque.write().unwrap();
+        let current = deque.pop_front().unwrap();
+        deque.push_back(current.clone());
         current
     }
 }
@@ -183,7 +189,7 @@ fn send_mm_transactions(
     quotes_per_second: u64,
     perp_market_caches: &Vec<PerpMarketCache>,
     tx_record_sx: &Sender<TransactionSendRecord>,
-    tpu_client_pool: Arc<RwLock<RotatingQueue<Arc<TpuClient>>>>,
+    tpu_client_pool: Arc<RotatingQueue<Arc<TpuClient>>>,
     mango_account_pk: Pubkey,
     mango_account_signer: &Keypair,
     blockhash: Arc<RwLock<Hash>>,
@@ -286,7 +292,7 @@ fn send_mm_transactions(
             if let Ok(recent_blockhash) = blockhash.read() {
                 tx.sign(&[mango_account_signer], *recent_blockhash);
             }
-
+            let tpu_client = tpu_client_pool.get();
             tpu_client.send_transaction(&tx);
             tx_record_sx
                 .send(TransactionSendRecord {
@@ -400,7 +406,7 @@ fn main() {
         .find(|g| g.name == mango_group_id)
         .unwrap();
 
-    let number_of_tpu_clients: usize = 1000;
+    let number_of_tpu_clients: usize = 100;
     let rpc_client_for_tpu_client =
         RotatingQueue::<Arc<RpcClient>>::new(number_of_tpu_clients, || {
             Arc::new(RpcClient::new_with_commitment(
@@ -409,22 +415,20 @@ fn main() {
             ))
         });
 
-    let connection_cache = Arc::new(ConnectionCache::default());
-
-    let tpu_client_pool = Arc::new(RwLock::new(RotatingQueue::<Arc<TpuClient>>::new(
+    let tpu_client_pool = Arc::new(RotatingQueue::<Arc<TpuClient>>::new(
         number_of_tpu_clients,
         || {
             Arc::new(
                 TpuClient::new_with_connection_cache(
-                    rpc_client_for_tpu_client.get(),
+                    rpc_client_for_tpu_client.get().clone(),
                     &websocket_url,
                     solana_client::tpu_client::TpuClientConfig::default(),
-                    connection_cache,
+                    Arc::new(ConnectionCache::default()),
                 )
                 .unwrap(),
             )
         },
-    )));
+    ));
 
     info!(
         "accounts:{:?} markets:{:?} quotes_per_second:{:?} expected_tps:{:?} duration:{:?}",
@@ -438,6 +442,10 @@ fn main() {
     );
 
     // continuosly fetch blockhash
+    let rpc_client = Arc::new(RpcClient::new_with_commitment(
+        json_rpc_url.to_string(),
+        CommitmentConfig::confirmed(),
+    ));
     let exit_signal = Arc::new(AtomicBool::new(false));
     let blockhash = Arc::new(RwLock::new(get_latest_blockhash(&rpc_client.clone())));
     let blockhash_thread = {
@@ -511,15 +519,7 @@ fn main() {
             ));
 
             // having a tpu client for each MM
-            let tpu_client = Arc::new(
-                TpuClient::new_with_connection_cache(
-                    rpc_client,
-                    &websocket_url,
-                    solana_client::tpu_client::TpuClientConfig::default(),
-                    connection_cache,
-                )
-                .unwrap(),
-            );
+            let tpu_client_pool = tpu_client_pool.clone();
 
             let blockhash = blockhash.clone();
             let duration = duration.clone();
@@ -548,10 +548,10 @@ fn main() {
                             quotes_per_second,
                             &perp_market_caches,
                             &tx_record_sx,
-                            &tpu_client,
+                            tpu_client_pool.clone(),
                             mango_account_pk,
                             &mango_account_signer,
-                            &blockhash,
+                            blockhash.clone(),
                         );
 
                         let elapsed_millis: u64 = start.elapsed().as_millis() as u64;
