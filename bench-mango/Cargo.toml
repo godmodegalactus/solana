@@ -25,32 +25,32 @@ serde_json = "1.0.79"
 serde_yaml = "0.8.23"
 mango = { path = "../../mango-v3/program", default-features = false, features = ["no-entrypoint"] }
 mango-common = { path = "../../mango-v3/common" }
-solana-bench-tps = { path = "../bench-tps", version = "=1.10.26" }
-solana-clap-utils = { path = "../clap-utils", version = "=1.10.26" }
-solana-cli-config = { path = "../cli-config", version = "=1.10.26" }
-solana-client = { path = "../client", version = "=1.10.26" }
-solana-core = { path = "../core", version = "=1.10.26" }
-solana-faucet = { path = "../faucet", version = "=1.10.26" }
-solana-genesis = { path = "../genesis", version = "=1.10.26" }
-solana-gossip = { path = "../gossip", version = "=1.10.26" }
-solana-logger = { path = "../logger", version = "=1.10.26" }
-solana-measure = { path = "../measure", version = "=1.10.26" }
-solana-metrics = { path = "../metrics", version = "=1.10.26" }
-solana-net-utils = { path = "../net-utils", version = "=1.10.26" }
-solana-rpc = { path = "../rpc", version = "=1.10.26" }
-solana-runtime = { path = "../runtime", version = "=1.10.26" }
-solana-sdk = { path = "../sdk", version = "=1.10.26" }
-solana-streamer = { path = "../streamer", version = "=1.10.26" }
-solana-transaction-status = { path = "../transaction-status", version = "=1.10.26" }
-solana-version = { path = "../version", version = "=1.10.26" }
+solana-bench-tps = { path = "../bench-tps" }
+solana-clap-utils = { path = "../clap-utils" }
+solana-cli-config = { path = "../cli-config" }
+solana-client = { path = "../client" }
+solana-core = { path = "../core" }
+solana-faucet = { path = "../faucet" }
+solana-genesis = { path = "../genesis" }
+solana-gossip = { path = "../gossip" }
+solana-logger = { path = "../logger" }
+solana-measure = { path = "../measure" }
+solana-metrics = { path = "../metrics" }
+solana-net-utils = { path = "../net-utils" }
+solana-rpc = { path = "../rpc" }
+solana-runtime = { path = "../runtime" }
+solana-sdk = { path = "../sdk" }
+solana-streamer = { path = "../streamer" }
+solana-transaction-status = { path = "../transaction-status" }
+solana-version = { path = "../version" }
 thiserror = "1.0"
 solana-program = ">=1.9.0"
 csv = "1.0.0"
 
 [dev-dependencies]
 serial_test = "0.6.0"
-solana-local-cluster = { path = "../local-cluster", version = "=1.10.26" }
-solana-test-validator = { path = "../test-validator", version = "=1.10.26" }
+solana-local-cluster = { path = "../local-cluster" }
+solana-test-validator = { path = "../test-validator" }
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
