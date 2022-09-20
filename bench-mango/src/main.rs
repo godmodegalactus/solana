@@ -7,7 +7,11 @@ use mango::{
     state::{MangoCache, MangoGroup, PerpMarket},
 };
 use mango_common::Loadable;
+use rayon::ThreadBuilder;
+use serde::Serialize;
 use serde_json;
+mod rotating_queue;
+use rotating_queue::RotatingQueue;
 
 use solana_bench_mango::{
     cli,
@@ -17,6 +21,7 @@ use solana_client::{
     connection_cache::ConnectionCache, rpc_client::RpcClient, rpc_config::RpcBlockConfig,
     tpu_client::TpuClient,
 };
+use solana_program::native_token::LAMPORTS_PER_SOL;
 use solana_runtime::bank::RewardType;
 use solana_sdk::{
     clock::{Slot, DEFAULT_MS_PER_SLOT},
@@ -29,23 +34,26 @@ use solana_sdk::{
     stake::instruction,
     transaction::Transaction,
 };
-use solana_transaction_status::{TransactionDetails, UiTransactionEncoding};
+use solana_transaction_status::{EncodedConfirmedBlock, TransactionDetails, UiTransactionEncoding};
 
 use core::time;
 use std::{
+    cell::Ref,
     collections::HashMap,
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     fs,
     ops::{Div, Mul},
     str::FromStr,
     sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc::{channel, Sender, TryRecvError},
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        mpsc::{channel, Receiver, Sender, TryRecvError},
         Arc, RwLock,
     },
     thread::{sleep, Builder, JoinHandle},
     time::{Duration, Instant},
 };
+
+use csv;
 
 fn load_from_rpc<T: Loadable>(rpc_client: &RpcClient, pk: &Pubkey) -> T {
     let acc = rpc_client.get_account(pk).unwrap();
@@ -81,28 +89,30 @@ fn get_new_latest_blockhash(client: &Arc<RpcClient>, blockhash: &Hash) -> Option
     None
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 struct TransactionSendRecord {
     pub signature: Signature,
     pub sent_at: DateTime<Utc>,
     pub sent_slot: Slot,
+    pub market_maker: Pubkey,
+    pub market: Pubkey,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 struct TransactionConfirmRecord {
-    pub signature: Signature,
+    pub signature: String,
     pub sent_slot: Slot,
-    pub sent_at: DateTime<Utc>,
+    pub sent_at: String,
     pub confirmed_slot: Slot,
-    pub confirmed_at: DateTime<Utc>,
-    pub error: Option<String>,
-}
-
-#[derive(Clone)]
-struct TransactionTimeoutRecord {
-    pub signature: Signature,
-    pub sent_at: DateTime<Utc>,
-    pub sent_slot: Slot,
+    pub confirmed_at: String,
+    pub successful: bool,
+    pub slot_leader: String,
+    pub error: String,
+    pub market_maker: String,
+    pub market: String,
+    pub block_hash: String,
+    pub slot_processed: Slot,
+    pub timed_out: bool,
 }
 
 #[derive(Clone)]
@@ -117,38 +127,23 @@ struct PerpMarketCache {
     pub perp_market: PerpMarket,
 }
 
-struct RotatingQueue<T> {
-    deque: Arc<RwLock<VecDeque<T>>>,
+struct TransactionInfo {
+    pub signature: Signature,
+    pub transactionSendTime: DateTime<Utc>,
+    pub send_slot: Slot,
+    pub confirmationRetries: u32,
+    pub error: String,
+    pub confirmationBlockHash: Pubkey,
+    pub leaderConfirmingTransaction: Pubkey,
+    pub timeout: bool,
+    pub market_maker: Pubkey,
+    pub market: Pubkey,
 }
 
-impl<T: Clone> RotatingQueue<T> {
-    pub fn new<F>(size: usize, creator_functor: F) -> Self
-    where
-        F: Fn() -> T,
-    {
-        let mut item = Self {
-            deque: Arc::new(RwLock::new(VecDeque::<T>::new())),
-        };
-        {
-            let mut deque = item.deque.write().unwrap();
-            for _i in 0..size {
-                deque.push_back(creator_functor());
-            }
-        }
-        item
-    }
-
-    pub fn get(&self) -> T {
-        let mut deque = self.deque.write().unwrap();
-        let current = deque.pop_front().unwrap();
-        deque.push_back(current.clone());
-        current
-    }
-}
-
-fn poll_blockhash(
+fn poll_blockhash_and_slot(
     exit_signal: &Arc<AtomicBool>,
-    blockhash: &Arc<RwLock<Hash>>,
+    blockhash: Arc<RwLock<Hash>>,
+    slot: &AtomicU64,
     client: &Arc<RpcClient>,
     _id: &Pubkey,
 ) {
@@ -160,8 +155,15 @@ fn poll_blockhash(
             break;
         }
 
+        let new_slot = client.get_slot().unwrap();
+        {
+            slot.store(new_slot, Ordering::Release);
+        }
+
         if let Some(new_blockhash) = get_new_latest_blockhash(client, &old_blockhash) {
-            *blockhash.write().unwrap() = new_blockhash;
+            {
+                *blockhash.write().unwrap() = new_blockhash;
+            }
             blockhash_last_updated = Instant::now();
         } else {
             if blockhash_last_updated.elapsed().as_secs() > 120 {
@@ -169,7 +171,7 @@ fn poll_blockhash(
             }
         }
 
-        sleep(Duration::from_millis(500));
+        sleep(Duration::from_millis(100));
     }
 }
 
@@ -193,6 +195,7 @@ fn send_mm_transactions(
     mango_account_pk: Pubkey,
     mango_account_signer: &Keypair,
     blockhash: Arc<RwLock<Hash>>,
+    slot: &AtomicU64,
 ) {
     // update quotes 2x per second
     for _ in 0..quotes_per_second {
@@ -294,13 +297,19 @@ fn send_mm_transactions(
             }
             let tpu_client = tpu_client_pool.get();
             tpu_client.send_transaction(&tx);
-            tx_record_sx
-                .send(TransactionSendRecord {
-                    signature: tx.signatures[0],
-                    sent_at: Utc::now(),
-                    sent_slot: tpu_client.estimated_current_slot(),
-                })
-                .unwrap();
+            let sent = tx_record_sx.send(TransactionSendRecord {
+                signature: tx.signatures[0],
+                sent_at: Utc::now(),
+                sent_slot: slot.load(Ordering::Acquire),
+                market_maker: mango_account_signer.pubkey(),
+                market: c.perp_market_pk,
+            });
+            if sent.is_err() {
+                println!(
+                    "sending error on channel : {}",
+                    sent.err().unwrap().to_string()
+                );
+            }
         }
     }
 }
@@ -326,19 +335,22 @@ fn process_signature_confirmation_batch(
                         } else {
                             let mut lock = confirmed.write().unwrap();
                             (*lock).push(TransactionConfirmRecord {
-                                signature: tx_record.signature,
+                                signature: tx_record.signature.to_string(),
                                 sent_slot: tx_record.sent_slot,
-                                sent_at: tx_record.sent_at,
-                                confirmed_at: Utc::now(),
+                                sent_at: tx_record.sent_at.to_string(),
+                                confirmed_at: Utc::now().to_string(),
                                 confirmed_slot: s.slot,
-                                error: s.err.as_ref().map(|e| {
-                                    let err_msg = e.to_string();
-                                    debug!(
-                                        "tx {} returned an error {}",
-                                        tx_record.signature, err_msg,
-                                    );
-                                    err_msg
-                                }),
+                                successful: s.err.is_none(),
+                                error: match &s.err {
+                                    Some(e) => e.to_string(),
+                                    None=> "".to_string(),
+                                },
+                                block_hash: Pubkey::default().to_string(),
+                                slot_leader: Pubkey::default().to_string(),
+                                market: tx_record.market.to_string(),
+                                market_maker: tx_record.market_maker.to_string(),
+                                slot_processed: tx_record.sent_slot,
+                                timed_out: false,
                             });
 
                             debug!(
@@ -371,6 +383,382 @@ fn process_signature_confirmation_batch(
     }
 }
 
+fn confirmation_by_querying_rpc(
+    recv_limit: usize,
+    rpc_client: Arc<RpcClient>,
+    tx_record_rx: &Receiver<TransactionSendRecord>,
+    tx_confirm_records: Arc<RwLock<Vec<TransactionConfirmRecord>>>,
+    tx_timeout_records: Arc<RwLock<Vec<TransactionSendRecord>>>,
+) {
+    const TIMEOUT: u64 = 30;
+    let mut error: bool = false;
+    let mut recv_until_confirm = recv_limit;
+    let not_confirmed: Arc<RwLock<Vec<TransactionSendRecord>>> = Arc::new(RwLock::new(Vec::new()));
+    loop {
+        let has_signatures_to_confirm = { not_confirmed.read().unwrap().len() > 0 };
+        if has_signatures_to_confirm {
+            // collect all not confirmed records in a new buffer
+
+            const BATCH_SIZE: usize = 256;
+            let to_confirm = {
+                let mut lock = not_confirmed.write().unwrap();
+                let to_confirm = (*lock).clone();
+                (*lock).clear();
+                to_confirm
+            };
+
+            info!(
+                "break from reading channel, try to confirm {} in {} batches",
+                to_confirm.len(),
+                (to_confirm.len() / BATCH_SIZE)
+                    + if to_confirm.len() % BATCH_SIZE > 0 {
+                        1
+                    } else {
+                        0
+                    }
+            );
+
+            let confirmed = tx_confirm_records.clone();
+            let timeouts = tx_timeout_records.clone();
+            for batch in to_confirm.rchunks(BATCH_SIZE).map(|x| x.to_vec()) {
+                process_signature_confirmation_batch(
+                    &rpc_client,
+                    &batch,
+                    &not_confirmed,
+                    &confirmed,
+                    timeouts.clone(),
+                    TIMEOUT,
+                );
+            }
+            // multi threaded implementation of confirming batches
+            // let mut confirmation_handles = Vec::new();
+            // for batch in to_confirm.rchunks(BATCH_SIZE).map(|x| x.to_vec()) {
+            //     let rpc_client = rpc_client.clone();
+            //     let not_confirmed = not_confirmed.clone();
+            //     let confirmed = tx_confirm_records.clone();
+
+            //     let join_handle = Builder::new().name("solana-transaction-confirmation".to_string()).spawn(move || {
+            //         process_signature_confirmation_batch(&rpc_client, &batch, &not_confirmed, &confirmed, TIMEOUT)
+            //     }).unwrap();
+            //     confirmation_handles.push(join_handle);
+            // };
+            // for confirmation_handle in confirmation_handles {
+            //     let (errors, timeouts) = confirmation_handle.join().unwrap();
+            //     error_count += errors;
+            //     timeout_count += timeouts;
+            // }
+            // sleep(Duration::from_millis(100)); // so the confirmation thread does not spam a lot the rpc node
+        }
+        {
+            if recv_until_confirm == 0 && not_confirmed.read().unwrap().len() == 0 {
+                break;
+            }
+        }
+        // context for writing all the not_confirmed_transactions
+        if recv_until_confirm > 0 {
+            let mut lock = not_confirmed.write().unwrap();
+            loop {
+                match tx_record_rx.try_recv() {
+                    Ok(tx_record) => {
+                        debug!(
+                            "add to queue len={} sig={}",
+                            (*lock).len() + 1,
+                            tx_record.signature
+                        );
+                        (*lock).push(tx_record);
+
+                        recv_until_confirm -= 1;
+                    }
+                    Err(TryRecvError::Empty) => {
+                        debug!("channel emptied");
+                        sleep(Duration::from_millis(100));
+                        break; // still confirm remaining transctions
+                    }
+                    Err(TryRecvError::Disconnected) => {
+                        {
+                            info!("channel disconnected {}", recv_until_confirm);
+                        }
+                        debug!("channel disconnected");
+                        error = true;
+                        break; // still confirm remaining transctions
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone, Serialize)]
+struct BlockData {
+    pub block_hash: String,
+    pub block_slot: Slot,
+    pub block_leader: String,
+    pub total_transactions: u64,
+    pub number_of_mm_transactions: u64,
+    pub block_time: u64,
+}
+
+fn confirmations_by_blocks(
+    clients: RotatingQueue<Arc<RpcClient>>,
+    current_slot: &AtomicU64,
+    recv_limit: usize,
+    tx_record_rx: Receiver<TransactionSendRecord>,
+    tx_confirm_records: Arc<RwLock<Vec<TransactionConfirmRecord>>>,
+    tx_timeout_records: Arc<RwLock<Vec<TransactionSendRecord>>>,
+    tx_block_data: Arc<RwLock<Vec<BlockData>>>,
+) {
+    let mut recv_until_confirm = recv_limit;
+    let transaction_map = Arc::new(RwLock::new(
+        HashMap::<Signature, TransactionSendRecord>::new(),
+    ));
+    let last_slot = current_slot.load(Ordering::Acquire);
+
+    while recv_until_confirm != 0 {
+        match tx_record_rx.try_recv() {
+            Ok(tx_record) => {
+                let mut transaction_map = transaction_map.write().unwrap();
+                debug!(
+                    "add to queue len={} sig={}",
+                    transaction_map.len() + 1,
+                    tx_record.signature
+                );
+                transaction_map.insert(tx_record.signature, tx_record);
+                recv_until_confirm -= 1;
+            }
+            Err(TryRecvError::Empty) => {
+                debug!("channel emptied");
+                sleep(Duration::from_millis(100));
+            }
+            Err(TryRecvError::Disconnected) => {
+                {
+                    info!("channel disconnected {}", recv_until_confirm);
+                }
+                debug!("channel disconnected");
+                break; // still confirm remaining transctions
+            }
+        }
+    }
+    println!("finished mapping all the trasactions");
+    sleep(Duration::from_secs(40));
+    let commitment_confirmation = CommitmentConfig {
+        commitment: CommitmentLevel::Confirmed,
+    };
+    let block_res = clients
+        .get()
+        .get_blocks_with_commitment(last_slot, None, commitment_confirmation)
+        .unwrap();
+
+    let nb_blocks = block_res.len();
+    let nb_thread: usize = 16;
+    println!("processing {} blocks", nb_blocks);
+
+    let mut join_handles = Vec::new();
+    for slot_batch in block_res
+        .chunks(if nb_blocks > nb_thread {
+            nb_blocks.div(nb_thread)
+        } else {
+            nb_blocks
+        })
+        .map(|x| x.to_vec())
+    {
+        let map = transaction_map.clone();
+        let client = clients.get().clone();
+        let tx_confirm_records = tx_confirm_records.clone();
+        let tx_block_data = tx_block_data.clone();
+        let joinble = Builder::new()
+            .name("getting blocks and searching transactions".to_string())
+            .spawn(move || {
+                for slot in slot_batch {
+                    // retry search for block 10 times
+                    let mut block = None;
+                    for i in 0..=10 {
+                        let block_res = client
+                        .get_block_with_config(
+                            slot,
+                            RpcBlockConfig {
+                                encoding: None,
+                                transaction_details: None,
+                                rewards: None,
+                                commitment: Some(commitment_confirmation),
+                                max_supported_transaction_version: None,
+                            },
+                        );
+
+                        match block_res {
+                            Ok(x) => {
+                                block = Some(x);
+                                break;
+                            },
+                            _=>{
+                                // do nothing
+                            }
+                        }
+                    }
+                    let block = block.unwrap();
+                        
+                    let mut mm_transaction_count: u64 = 0;
+                    let rewards = &block.rewards.unwrap();
+                    let slot_leader =  match rewards
+                            .iter()
+                            .find(|r| r.reward_type == Some(RewardType::Fee))
+                            {
+                                Some(x) => x.pubkey.clone(),
+                                None=> "".to_string(),
+                            };
+
+                    if let Some(transactions) = block.transactions {
+                        let nb_transactions = transactions.len();
+                        println!(
+                            "block {} at slot {} contains {} transactions",
+                            block.blockhash,
+                            block.block_height.unwrap(),
+                            nb_transactions
+                        );
+                        for solana_transaction_status::EncodedTransactionWithStatusMeta {
+                            transaction,
+                            meta,
+                            version,
+                        } in transactions
+                        {
+                            if let solana_transaction_status::EncodedTransaction::Json(
+                                transaction,
+                            ) = transaction
+                            {
+                                for signature in transaction.signatures {
+                                    let signature = Signature::from_str(&signature).unwrap();
+                                    let transaction_record_op = {
+                                        let map = map.read().unwrap();
+                                        let rec = map.get(&signature);
+                                        match rec {
+                                            Some(x) => Some(x.clone()),
+                                            None => None,
+                                        }
+                                    };
+                                    if let Some(transaction_record) = transaction_record_op {
+                                        let mut lock = tx_confirm_records.write().unwrap();
+                                        mm_transaction_count += 1;
+
+                                        (*lock).push(TransactionConfirmRecord {
+                                            signature: transaction_record.signature.to_string(),
+                                            confirmed_slot: slot, // TODO: should be changed to correct slot
+                                            confirmed_at: Utc::now().to_string(),
+                                            sent_at: transaction_record.sent_at.to_string(),
+                                            sent_slot: transaction_record.sent_slot,
+                                            successful: if let Some(meta) = &meta {
+                                                meta.status.is_ok()
+                                            } else {
+                                                false
+                                            },
+                                            error: if let Some(meta) = &meta {
+                                                match &meta.err {
+                                                    Some(x) => x.to_string(),
+                                                    None => "".to_string(),
+                                                }
+                                            } else {
+                                                "".to_string()
+                                            },
+                                            block_hash: block.blockhash.clone(),
+                                            market: transaction_record.market.to_string(),
+                                            market_maker: transaction_record.market_maker.to_string(),
+                                            slot_processed: slot,
+                                            slot_leader: slot_leader.clone(),
+                                            timed_out: false,
+                                        })
+                                    }
+
+                                    map.write().unwrap().remove(&signature);
+                                }
+                            }
+                        }
+                        // push block data
+                        {
+                            let mut blockstats_writer = tx_block_data.write().unwrap();
+                            blockstats_writer.push(BlockData {
+                                block_hash: block.blockhash,
+                                block_leader: slot_leader,
+                                block_slot: slot,
+                                block_time: if let Some(time) = block.block_time {
+                                    time as u64
+                                } else {
+                                    0
+                                },
+                                number_of_mm_transactions: mm_transaction_count,
+                                total_transactions: nb_transactions as u64,
+                            })
+                        }
+                    }
+                }
+            })
+            .unwrap();
+        join_handles.push(joinble);
+    }
+    for handle in join_handles {
+        handle.join().unwrap();
+    }
+
+    let mut timeout_writer = tx_timeout_records.write().unwrap();
+    for x in transaction_map.read().unwrap().iter() {
+        timeout_writer.push(x.1.clone())
+    }
+}
+
+fn write_transaction_data_into_csv(
+    transaction_save_file: String,
+    tx_confirm_records: Arc<RwLock<Vec<TransactionConfirmRecord>>>,
+    tx_timeout_records: Arc<RwLock<Vec<TransactionSendRecord>>>,
+) {
+    if transaction_save_file.is_empty() {
+        return;
+    }
+    let mut writer = csv::Writer::from_path(transaction_save_file).unwrap();
+    {
+        let rd_lock = tx_confirm_records.read().unwrap();
+        for confirm_record in rd_lock.iter() {
+            writer.serialize(confirm_record).unwrap();
+        }
+
+        let timeout_lk = tx_timeout_records.read().unwrap();
+        for timeout_record in timeout_lk.iter() {
+            writer.serialize(
+                TransactionConfirmRecord{
+                    block_hash: "".to_string(),
+                    confirmed_at: "".to_string(),
+                    confirmed_slot: 0,
+                    error: "Timeout".to_string(),
+                    market: timeout_record.market.to_string(),
+                    market_maker: timeout_record.market_maker.to_string(),
+                    sent_at: timeout_record.sent_at.to_string(),
+                    sent_slot: timeout_record.sent_slot,
+                    signature: timeout_record.signature.to_string(),
+                    slot_leader: "".to_string(),
+                    slot_processed: 0,
+                    successful: false,
+                    timed_out: true,
+                }
+            ).unwrap();
+        }
+    }
+    writer.flush().unwrap();
+}
+
+
+fn write_block_data_into_csv(
+    block_data_csv: String,
+    tx_block_data: Arc<RwLock<Vec<BlockData>>>,
+) {
+    if block_data_csv.is_empty() {
+        return;
+    }
+    let mut writer = csv::Writer::from_path(block_data_csv).unwrap();
+    let data = tx_block_data.read().unwrap();
+
+    for d in data.iter().filter(|x| x.number_of_mm_transactions > 0) {
+        writer.serialize(d).unwrap();
+    }
+    writer.flush().unwrap();
+}
+
+
 fn main() {
     solana_logger::setup_with_default("solana=info");
     solana_metrics::set_panic_hook("bench-mango", /*version:*/ None);
@@ -386,8 +774,15 @@ fn main() {
         mango_keys,
         duration,
         quotes_per_second,
+        transaction_save_file,
+        block_data_save_file,
+        airdrop_accounts,
         ..
     } = &cli_config;
+
+    let transaction_save_file = transaction_save_file.clone();
+    let block_data_save_file = block_data_save_file.clone();
+    let airdrop_accounts = *airdrop_accounts;
 
     info!("Connecting to the cluster");
 
@@ -406,21 +801,20 @@ fn main() {
         .find(|g| g.name == mango_group_id)
         .unwrap();
 
-    let number_of_tpu_clients: usize = 100;
-    let rpc_client_for_tpu_client =
-        RotatingQueue::<Arc<RpcClient>>::new(number_of_tpu_clients, || {
-            Arc::new(RpcClient::new_with_commitment(
-                json_rpc_url.to_string(),
-                CommitmentConfig::confirmed(),
-            ))
-        });
+    let number_of_tpu_clients: usize = 2 * (*quotes_per_second as usize);
+    let rpc_clients = RotatingQueue::<Arc<RpcClient>>::new(number_of_tpu_clients, || {
+        Arc::new(RpcClient::new_with_commitment(
+            json_rpc_url.to_string(),
+            CommitmentConfig::confirmed(),
+        ))
+    });
 
     let tpu_client_pool = Arc::new(RotatingQueue::<Arc<TpuClient>>::new(
         number_of_tpu_clients,
         || {
             Arc::new(
                 TpuClient::new_with_connection_cache(
-                    rpc_client_for_tpu_client.get().clone(),
+                    rpc_clients.get().clone(),
                     &websocket_url,
                     solana_client::tpu_client::TpuClientConfig::default(),
                     Arc::new(ConnectionCache::default()),
@@ -448,15 +842,23 @@ fn main() {
     ));
     let exit_signal = Arc::new(AtomicBool::new(false));
     let blockhash = Arc::new(RwLock::new(get_latest_blockhash(&rpc_client.clone())));
+    let current_slot = Arc::new(AtomicU64::new(0));
     let blockhash_thread = {
         let exit_signal = exit_signal.clone();
         let blockhash = blockhash.clone();
         let client = rpc_client.clone();
         let id = id.pubkey();
+        let current_slot = current_slot.clone();
         Builder::new()
             .name("solana-blockhash-poller".to_string())
             .spawn(move || {
-                poll_blockhash(&exit_signal, &blockhash, &client, &id);
+                poll_blockhash_and_slot(
+                    &exit_signal,
+                    blockhash.clone(),
+                    current_slot.as_ref(),
+                    &client,
+                    &id,
+                );
             })
             .unwrap()
     };
@@ -511,17 +913,11 @@ fn main() {
         .iter()
         .map(|account_keys| {
             let _exit_signal = exit_signal.clone();
-            let connection_cache = Arc::new(ConnectionCache::default());
-
-            let rpc_client = Arc::new(RpcClient::new_with_commitment(
-                json_rpc_url.to_string(),
-                CommitmentConfig::confirmed(),
-            ));
-
             // having a tpu client for each MM
             let tpu_client_pool = tpu_client_pool.clone();
 
             let blockhash = blockhash.clone();
+            let current_slot = current_slot.clone();
             let duration = duration.clone();
             let quotes_per_second = quotes_per_second.clone();
             let perp_market_caches = perp_market_caches.clone();
@@ -530,11 +926,27 @@ fn main() {
             let mango_account_signer =
                 Keypair::from_bytes(account_keys.secret_key.as_slice()).unwrap();
 
+            if airdrop_accounts {
+                println!("Transfering 1 SOL to {}", mango_account_signer.pubkey());
+                let inx = solana_sdk::system_instruction::transfer( &id.pubkey(), &mango_account_signer.pubkey(), LAMPORTS_PER_SOL);
+
+                let mut tx = Transaction::new_unsigned(Message::new(
+                    &[inx],
+                    Some(&id.pubkey()),
+                ));
+    
+                if let Ok(recent_blockhash) = blockhash.read() {
+                    tx.sign(&[id], *recent_blockhash);
+                }
+                rpc_client.send_and_confirm_transaction_with_spinner(&tx).unwrap();
+            }
+
             info!(
                 "wallet:{:?} https://testnet.mango.markets/account?pubkey={:?}",
                 mango_account_signer.pubkey(),
                 mango_account_pk
             );
+            //sleep(Duration::from_secs(10));
 
             let tx_record_sx = tx_record_sx.clone();
 
@@ -552,6 +964,7 @@ fn main() {
                             mango_account_pk,
                             &mango_account_signer,
                             blockhash.clone(),
+                            current_slot.as_ref(),
                         );
 
                         let elapsed_millis: u64 = start.elapsed().as_millis() as u64;
@@ -579,109 +992,26 @@ fn main() {
     let tx_timeout_records: Arc<RwLock<Vec<TransactionSendRecord>>> =
         Arc::new(RwLock::new(Vec::new()));
 
+    let tx_block_data = Arc::new(RwLock::new(Vec::<BlockData>::new()));
+
     let confirmation_thread = Builder::new()
         .name("solana-client-sender".to_string())
         .spawn(move || {
-            const TIMEOUT: u64 = 30;
-            let mut error: bool = false;
             let recv_limit = account_keys_parsed.len()
                 * perp_market_caches.len()
                 * duration.as_secs() as usize
                 * quotes_per_second as usize;
-            let mut recv_until_confirm = recv_limit;
-            let not_confirmed: Arc<RwLock<Vec<TransactionSendRecord>>> =
-                Arc::new(RwLock::new(Vec::new()));
-            loop {
-                let has_signatures_to_confirm = { not_confirmed.read().unwrap().len() > 0 };
-                if has_signatures_to_confirm {
-                    // collect all not confirmed records in a new buffer
 
-                    const BATCH_SIZE: usize = 256;
-                    let to_confirm = {
-                        let mut lock = not_confirmed.write().unwrap();
-                        let to_confirm = (*lock).clone();
-                        (*lock).clear();
-                        to_confirm
-                    };
-
-                    info!(
-                        "break from reading channel, try to confirm {} in {} batches",
-                        to_confirm.len(),
-                        (to_confirm.len() / BATCH_SIZE)
-                            + if to_confirm.len() % BATCH_SIZE > 0 {
-                                1
-                            } else {
-                                0
-                            }
-                    );
-
-                    let confirmed = tx_confirm_records.clone();
-                    let timeouts = tx_timeout_records.clone();
-                    for batch in to_confirm.rchunks(BATCH_SIZE).map(|x| x.to_vec()) {
-                        process_signature_confirmation_batch(
-                            &rpc_client,
-                            &batch,
-                            &not_confirmed,
-                            &confirmed,
-                            timeouts.clone(),
-                            TIMEOUT,
-                        );
-                    }
-                    // multi threaded implementation of confirming batches
-                    // let mut confirmation_handles = Vec::new();
-                    // for batch in to_confirm.rchunks(BATCH_SIZE).map(|x| x.to_vec()) {
-                    //     let rpc_client = rpc_client.clone();
-                    //     let not_confirmed = not_confirmed.clone();
-                    //     let confirmed = tx_confirm_records.clone();
-
-                    //     let join_handle = Builder::new().name("solana-transaction-confirmation".to_string()).spawn(move || {
-                    //         process_signature_confirmation_batch(&rpc_client, &batch, &not_confirmed, &confirmed, TIMEOUT)
-                    //     }).unwrap();
-                    //     confirmation_handles.push(join_handle);
-                    // };
-                    // for confirmation_handle in confirmation_handles {
-                    //     let (errors, timeouts) = confirmation_handle.join().unwrap();
-                    //     error_count += errors;
-                    //     timeout_count += timeouts;
-                    // }
-                    // sleep(Duration::from_millis(100)); // so the confirmation thread does not spam a lot the rpc node
-                }
-                {
-                    if recv_until_confirm == 0 && not_confirmed.read().unwrap().len() == 0 {
-                        break;
-                    }
-                }
-                // context for writing all the not_confirmed_transactions
-                if recv_until_confirm > 0 {
-                    let mut lock = not_confirmed.write().unwrap();
-                    loop {
-                        match tx_record_rx.try_recv() {
-                            Ok(tx_record) => {
-                                debug!(
-                                    "add to queue len={} sig={}",
-                                    (*lock).len() + 1,
-                                    tx_record.signature
-                                );
-                                (*lock).push(tx_record);
-                                recv_until_confirm -= 1;
-                            }
-                            Err(TryRecvError::Empty) => {
-                                debug!("channel emptied");
-                                sleep(Duration::from_millis(100));
-                                break; // still confirm remaining transctions
-                            }
-                            Err(TryRecvError::Disconnected) => {
-                                {
-                                    info!("channel disconnected {}", recv_until_confirm);
-                                }
-                                debug!("channel disconnected");
-                                error = true;
-                                break; // still confirm remaining transctions
-                            }
-                        }
-                    }
-                }
-            }
+            //confirmation_by_querying_rpc(recv_limit, rpc_client.clone(), &tx_record_rx, tx_confirm_records.clone(), tx_timeout_records.clone());
+            confirmations_by_blocks(
+                rpc_clients,
+                &current_slot,
+                recv_limit,
+                tx_record_rx,
+                tx_confirm_records.clone(),
+                tx_timeout_records.clone(),
+                tx_block_data.clone(),
+            );
 
             let confirmed: Vec<TransactionConfirmRecord> = {
                 let lock = tx_confirm_records.write().unwrap();
@@ -697,7 +1027,7 @@ fn main() {
                 total_signed,
                 (confirmed.len() * 100) / total_signed
             );
-            let error_count = confirmed.iter().filter(|tx| tx.error.is_some()).count();
+            let error_count = confirmed.iter().filter(|tx| !tx.error.is_empty()).count();
             info!(
                 "errors counted {} rate {}%",
                 error_count,
@@ -714,120 +1044,32 @@ fn main() {
                 (timeouts.len() * 100) / total_signed
             );
 
-            let mut confirmation_times = confirmed
-                .iter()
-                .map(|r| {
-                    r.confirmed_at
-                        .signed_duration_since(r.sent_at)
-                        .num_milliseconds()
-                })
-                .collect::<Vec<_>>();
-            confirmation_times.sort();
-            info!(
-                "confirmation times min={} max={} median={}",
-                confirmation_times.first().unwrap(),
-                confirmation_times.last().unwrap(),
-                confirmation_times[confirmation_times.len() / 2]
+            // let mut confirmation_times = confirmed
+            //     .iter()
+            //     .map(|r| {
+            //         r.confirmed_at
+            //             .signed_duration_since(r.sent_at)
+            //             .num_milliseconds()
+            //     })
+            //     .collect::<Vec<_>>();
+            // confirmation_times.sort();
+            // info!(
+            //     "confirmation times min={} max={} median={}",
+            //     confirmation_times.first().unwrap(),
+            //     confirmation_times.last().unwrap(),
+            //     confirmation_times[confirmation_times.len() / 2]
+            // );
+
+            write_transaction_data_into_csv(
+                transaction_save_file,
+                tx_confirm_records,
+                tx_timeout_records,
             );
 
-            let mut slots = confirmed
-                .iter()
-                .map(|r| r.confirmed_slot)
-                .collect::<Vec<_>>();
-            slots.sort();
-            slots.dedup();
-            info!(
-                "slots min={} max={} num={}",
-                slots.first().unwrap(),
-                slots.last().unwrap(),
-                slots.len()
+            write_block_data_into_csv(
+                block_data_save_file,
+                tx_block_data
             );
-
-            info!("slot csv stats");
-            let mut num_tx_confirmed_by_slot = HashMap::new();
-            for r in confirmed.iter() {
-                *num_tx_confirmed_by_slot
-                    .entry(r.confirmed_slot)
-                    .or_insert(0) += 1;
-            }
-
-            sleep(Duration::from_secs(5));
-            let mut block_by_slot = HashMap::new();
-            for slot in slots.iter() {
-                let maybe_block = rpc_client.get_block_with_config(
-                    *slot,
-                    RpcBlockConfig {
-                        encoding: Some(UiTransactionEncoding::Base64),
-                        transaction_details: Some(TransactionDetails::Signatures),
-                        rewards: Some(true),
-                        commitment: Some(CommitmentConfig {
-                            commitment: CommitmentLevel::Confirmed,
-                        }),
-                        max_supported_transaction_version: None,
-                    },
-                );
-                block_by_slot.insert(*slot, maybe_block);
-            }
-
-            println!("slot,leader_id,block_time,block_txs,bench_txs");
-            for slot in slots.iter() {
-                let bench_txs = num_tx_confirmed_by_slot[slot];
-                match &block_by_slot[slot] {
-                    Ok(block) => {
-                        let leader_pk = &block
-                            .rewards
-                            .as_ref()
-                            .unwrap()
-                            .iter()
-                            .find(|r| r.reward_type == Some(RewardType::Fee))
-                            .unwrap()
-                            .pubkey;
-
-                        println!(
-                            "{},{},{:?},{},{}",
-                            slot,
-                            leader_pk,
-                            block.block_time.as_ref().unwrap(),
-                            block.signatures.as_ref().unwrap().len(),
-                            bench_txs
-                        );
-                    }
-                    Err(err) => {
-                        error!(
-                            "could not fetch slot={} bench_txs={} err={}",
-                            *slot, bench_txs, err
-                        );
-                    }
-                }
-            }
-
-            info!("tx csv stats");
-            println!("send_time,send_slot,confirmed_time,confirmed_slot,block_time");
-
-            for tx in confirmed.iter() {
-                let slot = tx.confirmed_slot;
-                match &block_by_slot[&slot] {
-                    Ok(block) => {
-                        println!(
-                            "{:?},{},{:?},{},{}",
-                            tx.sent_at,
-                            tx.sent_slot,
-                            tx.confirmed_at,
-                            tx.confirmed_slot,
-                            block.block_time.as_ref().unwrap()
-                        );
-                    }
-                    Err(err) => {
-                        println!(
-                            "{:?},{},{:?},{},",
-                            tx.sent_at, tx.sent_slot, tx.confirmed_at, tx.confirmed_slot
-                        );
-                    }
-                }
-            }
-            for tx in timeouts.iter() {
-                println!("{:?},{},,,", tx.sent_at, tx.sent_slot);
-            }
         })
         .unwrap();
 
