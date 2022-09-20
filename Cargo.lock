@@ -2788,7 +2788,7 @@ dependencies = [
 
 [[package]]
 name = "mango"
-version = "3.4.7"
+version = "3.6.1"
 dependencies = [
  "anchor-lang",
  "arrayref",
@@ -5098,6 +5098,7 @@ dependencies = [
  "chrono",
  "clap 2.33.3",
  "crossbeam-channel",
+ "csv",
  "fixed",
  "fixed-macro",
  "log",
