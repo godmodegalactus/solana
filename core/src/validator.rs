@@ -683,6 +683,12 @@ impl Validator {
             false => Arc::new(ConnectionCache::with_udp(tpu_connection_pool_size)),
         };
 
+        let mut cost_model = CostModel::default();
+        // initialize cost model with built-in instruction costs only
+        cost_model.initialize_cost_table(&[]);
+        let cost_model = Arc::new(RwLock::new(cost_model));
+
+
         let rpc_override_health_check = Arc::new(AtomicBool::new(false));
         let (
             json_rpc_service,
@@ -737,6 +743,7 @@ impl Validator {
                     leader_schedule_cache.clone(),
                     connection_cache.clone(),
                     max_complete_transaction_status_slot,
+                    cost_model.clone(),
                 )),
                 if !config.rpc_config.full_api {
                     None
@@ -885,11 +892,6 @@ impl Validator {
         );
 
         let vote_tracker = Arc::<VoteTracker>::default();
-        let mut cost_model = CostModel::default();
-        // initialize cost model with built-in instruction costs only
-        cost_model.initialize_cost_table(&[]);
-        let cost_model = Arc::new(RwLock::new(cost_model));
-
         let (retransmit_slots_sender, retransmit_slots_receiver) = unbounded();
         let (verified_vote_sender, verified_vote_receiver) = unbounded();
         let (gossip_verified_vote_hash_sender, gossip_verified_vote_hash_receiver) = unbounded();

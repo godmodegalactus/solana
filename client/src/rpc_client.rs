@@ -6,6 +6,8 @@
 //!
 //! [JSON-RPC]: https://www.jsonrpc.org/specification
 
+use spl_token_2022::solana_program::example_mocks::solana_client::rpc_client;
+
 pub use crate::mock_sender::Mocks;
 #[allow(deprecated)]
 use crate::rpc_deprecated_config::{RpcConfirmedBlockConfig, RpcConfirmedTransactionConfig};
@@ -4045,6 +4047,14 @@ impl RpcClient {
 
     pub fn get_transport_stats(&self) -> RpcTransportStats {
         self.rpc_client.get_transport_stats()
+    }
+
+    pub fn get_estimated_instruction_costs(&self) -> ClientResult<Vec<RpcExecuteCostInfo>> {
+        self.invoke(self.rpc_client.get_estimated_instruction_costs())
+    }
+
+    pub fn get_estimated_instruction_cost(&self, program_id : Pubkey) -> ClientResult<RpcExecuteCostInfo> {
+        self.invoke(self.rpc_client.get_estimated_instruction_cost(program_id))
     }
 
     fn invoke<T, F: std::future::Future<Output = ClientResult<T>>>(&self, f: F) -> ClientResult<T> {

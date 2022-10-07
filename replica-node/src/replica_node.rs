@@ -251,6 +251,7 @@ fn start_client_rpc_services(
             leader_schedule_cache.clone(),
             connection_cache,
             max_complete_transaction_status_slot,
+            Arc::new(RwLock::new(solana_runtime::cost_model::CostModel::new())),
         )),
         Some(pubsub_service),
         Some(OptimisticallyConfirmedBankTracker::new(

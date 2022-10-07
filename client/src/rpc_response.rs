@@ -190,6 +190,15 @@ pub struct SlotTransactionStats {
     pub max_transactions_per_entry: u64,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RpcExecuteCostInfo{
+    pub program_id: String,
+    pub cost: u64,
+    pub occurence: u64,
+}
+
+
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum SlotUpdate {

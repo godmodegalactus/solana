@@ -1,5 +1,8 @@
 //! The `rpc` module implements the Solana RPC interface.
 
+use itertools::Itertools;
+use solana_runtime::{execute_cost_table::{ExecuteCostTable, UiExecuteCostTable}, cost_model::CostModel};
+
 use {
     crate::{
         max_slots::MaxSlots, optimistically_confirmed_bank_tracker::OptimisticallyConfirmedBank,
@@ -210,6 +213,7 @@ pub struct JsonRpcRequestProcessor {
     max_slots: Arc<MaxSlots>,
     leader_schedule_cache: Arc<LeaderScheduleCache>,
     max_complete_transaction_status_slot: Arc<AtomicU64>,
+    cost_model : Arc<RwLock<CostModel>>,
 }
 impl Metadata for JsonRpcRequestProcessor {}
 
@@ -315,6 +319,7 @@ impl JsonRpcRequestProcessor {
         max_slots: Arc<MaxSlots>,
         leader_schedule_cache: Arc<LeaderScheduleCache>,
         max_complete_transaction_status_slot: Arc<AtomicU64>,
+        cost_model: Arc<RwLock<CostModel>>,
     ) -> (Self, Receiver<TransactionInfo>) {
         let (sender, receiver) = unbounded();
         (
@@ -335,6 +340,7 @@ impl JsonRpcRequestProcessor {
                 max_slots,
                 leader_schedule_cache,
                 max_complete_transaction_status_slot,
+                cost_model,
             },
             receiver,
         )
@@ -393,6 +399,7 @@ impl JsonRpcRequestProcessor {
             max_slots: Arc::new(MaxSlots::default()),
             leader_schedule_cache: Arc::new(LeaderScheduleCache::new_from_bank(bank)),
             max_complete_transaction_status_slot: Arc::new(AtomicU64::default()),
+            cost_model: Arc::new(RwLock::new(CostModel::new())),
         }
     }
 
@@ -2167,6 +2174,58 @@ impl JsonRpcRequestProcessor {
         let fee = bank.get_fee_for_message(message);
         Ok(new_response(&bank, fee))
     }
+
+    fn get_estimated_instruction_costs(
+        &self,
+    ) -> Result<Vec<RpcExecuteCostInfo>>
+    {
+        let ui_data =  {
+            let lock = self.cost_model.read();
+            match lock {
+                Ok(x) => {
+                    Some(x.get_ui_data())
+                },
+                Err(_) => None,
+            }
+        };
+
+        match ui_data {
+            Some(costs) => {
+                let res = costs.data.iter().map( |x| RpcExecuteCostInfo {
+                    program_id: x.0.to_string(),
+                    cost: x.1,
+                    occurence: x.2 as u64,
+                }).collect_vec();
+                Ok(res)
+            },
+            None => Err(RpcCustomError::ScanError {
+                message: "Cannot read the cost model table".to_string(),
+            }.into())
+        }
+    }
+
+    fn get_estimated_instruction_cost(
+        &self,
+        program_id: Pubkey
+    ) -> Result<RpcExecuteCostInfo> {
+        let lock = self.cost_model.read();
+        match lock {
+            Ok(x) => {
+                let ui_data = x.get_ui_data_for_program(program_id);
+                match ui_data {
+                    Some(valid_data) => Ok(RpcExecuteCostInfo {
+                        program_id : program_id.to_string(),
+                        cost: valid_data.0,
+                        occurence: valid_data.1 as u64,
+                    }),
+                    None => Err(RpcCustomError::ScanError {
+                        message: "Cannot read the cost model table or program id not in the table".to_string(),
+                    }.into())
+                }
+            },
+            Err(_) => Err(RpcCustomError::ScanError{ message: "Cannot lock a read lock on cost model table".to_string() }.into())
+        }
+    }
 }
 
 fn optimize_filters(filters: &mut [RpcFilterType]) {
@@ -3394,6 +3453,19 @@ pub mod rpc_full {
             data: String,
             config: Option<RpcContextConfig>,
         ) -> Result<RpcResponse<Option<u64>>>;
+
+        #[rpc(meta, name= "getEstimatedInstructionCosts")]
+        fn get_estimated_instruction_costs(
+            &self,
+            meta: Self::Metadata,
+        ) -> Result<Vec<RpcExecuteCostInfo>>;
+
+        #[rpc(meta, name= "getEstimatedInstructionCost")]
+        fn get_estimated_instruction_cost(
+            &self,
+            meta: Self::Metadata,
+            program_id: String,
+        ) -> Result<RpcExecuteCostInfo>;
     }
 
     pub struct FullImpl;
@@ -3962,6 +4034,29 @@ pub mod rpc_full {
                 Error::invalid_params(format!("invalid transaction message: {}", err))
             })?;
             meta.get_fee_for_message(&sanitized_message, config.unwrap_or_default())
+        }
+
+        fn get_estimated_instruction_costs(
+            &self,
+            meta: Self::Metadata,
+        ) -> Result<Vec<RpcExecuteCostInfo>>{
+            debug!("get_estimated_instruction_costs rpc request received");
+            meta.get_estimated_instruction_costs()
+        }
+
+        fn get_estimated_instruction_cost(
+            &self,
+            meta: Self::Metadata,
+            program_id: String,
+        ) -> Result<RpcExecuteCostInfo> {
+            debug!("get_estimated_instruction_cost rpc request received");
+
+            let program_pubkey = match verify_pubkey(&program_id) {
+                Ok(pubkey) => pubkey,
+                Err(err) => return Err(err),
+            };
+
+            meta.get_estimated_instruction_cost(program_pubkey)
         }
     }
 }
@@ -4697,6 +4792,7 @@ pub mod tests {
                 max_slots.clone(),
                 Arc::new(LeaderScheduleCache::new_from_bank(&bank)),
                 max_complete_transaction_status_slot.clone(),
+                Arc::new(RwLock::new(CostModel::new())),
             )
             .0;
 
@@ -6266,6 +6362,7 @@ pub mod tests {
             Arc::new(MaxSlots::default()),
             Arc::new(LeaderScheduleCache::default()),
             Arc::new(AtomicU64::default()),
+            Arc::new(RwLock::new(CostModel::new())),
         );
         let connection_cache = Arc::new(ConnectionCache::default());
         SendTransactionService::new::<NullTpuInfo>(
@@ -6533,6 +6630,7 @@ pub mod tests {
             Arc::new(MaxSlots::default()),
             Arc::new(LeaderScheduleCache::default()),
             Arc::new(AtomicU64::default()),
+            Arc::new(RwLock::new(CostModel::new()))
         );
         let connection_cache = Arc::new(ConnectionCache::default());
         SendTransactionService::new::<NullTpuInfo>(
@@ -8240,6 +8338,7 @@ pub mod tests {
             Arc::new(MaxSlots::default()),
             Arc::new(LeaderScheduleCache::default()),
             Arc::new(AtomicU64::default()),
+            Arc::new(RwLock::new(CostModel::new())),
         );
 
         let mut io = MetaIoHandler::default();

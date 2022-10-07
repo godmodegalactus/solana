@@ -1,5 +1,7 @@
 //! The `rpc_service` module implements the Solana JSON RPC service.
 
+use solana_runtime::cost_model::CostModel;
+
 use {
     crate::{
         cluster_tpu_info::ClusterTpuInfo,
@@ -339,6 +341,7 @@ impl JsonRpcService {
         leader_schedule_cache: Arc<LeaderScheduleCache>,
         connection_cache: Arc<ConnectionCache>,
         current_transaction_status_slot: Arc<AtomicU64>,
+        cost_model: Arc<RwLock<CostModel>>,
     ) -> Self {
         info!("rpc bound to {:?}", rpc_addr);
         info!("rpc configuration: {:?}", config);
@@ -443,6 +446,7 @@ impl JsonRpcService {
             max_slots,
             leader_schedule_cache,
             current_transaction_status_slot,
+            cost_model,
         );
 
         let leader_info =
@@ -623,6 +627,7 @@ mod tests {
             Arc::new(LeaderScheduleCache::default()),
             connection_cache,
             Arc::new(AtomicU64::default()),
+            Arc::new(RwLock::new(CostModel::new())),
         );
         let thread = rpc_service.thread_hdl.thread();
         assert_eq!(thread.name().unwrap(), "solana-jsonrpc");
