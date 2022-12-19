@@ -343,9 +343,12 @@ async fn setup_connection(
 }
 
 async fn reply_on_send_channel(send_channel: &mut SendStream, data: &[u8]) {
-    let send_res = send_channel.write(data).await;
+    let send_res = send_channel.write_all(data).await;
     if let Err(e) = send_res {
-        debug!("error sending timeout results {}", e.to_string());
+        debug!("error sending results {}", e.to_string());
+    }
+    if let Err(e) = send_channel.finish().await {
+        debug!("error finishinf message on send channel {}", e.to_string());
     }
 }
 

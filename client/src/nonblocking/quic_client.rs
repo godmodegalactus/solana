@@ -80,6 +80,8 @@ pub enum QuicError {
     ConnectionError(#[from] ConnectionError),
     #[error(transparent)]
     ConnectError(#[from] ConnectError),
+    #[error("got error from server")]
+    ErrorFromServer(String),
 }
 
 impl QuicLazyInitializedEndpoint {
@@ -284,12 +286,35 @@ impl QuicClient {
     async fn _send_buffer_using_conn(
         data: &[u8],
         connection: &NewConnection,
+        listen_to_server_errors: bool,
     ) -> Result<(), QuicError> {
-        let mut send_stream = connection.connection.open_uni().await?;
+        if listen_to_server_errors {
+            let (mut send_stream, recv_stream) = connection.connection.open_bi().await?;
 
-        send_stream.write_all(data).await?;
-        send_stream.finish().await?;
-        Ok(())
+            send_stream.write_all(data).await?;
+            send_stream.finish().await?;
+            
+            let data = recv_stream.read_to_end(100).await;
+            match data {
+                Ok(data) => {
+                    let data_str = std::str::from_utf8(data.as_slice()).unwrap();
+                    if !data_str.eq("ok") {
+                        Err(QuicError::ErrorFromServer(data_str.to_string())) 
+                    } else {
+                        Ok(())
+                    }
+                },
+                Err(e) => {
+                    let error = format!("unable to read data from server {}", e.to_string());
+                    Err(QuicError::ErrorFromServer(error))
+                }
+            }
+        } else {
+            let mut send_stream = connection.connection.open_uni().await?;
+            send_stream.write_all(data).await?;
+            send_stream.finish().await?;
+            Ok(())
+        }
     }
 
     // Attempts to send data, connecting/reconnecting as necessary
@@ -299,6 +324,7 @@ impl QuicClient {
         data: &[u8],
         stats: &ClientStats,
         connection_stats: Arc<ConnectionCacheStats>,
+        listen_to_server_errors: bool,
     ) -> Result<Arc<NewConnection>, QuicError> {
         let mut connection_try_count = 0;
         let mut last_connection_id = 0;
@@ -397,16 +423,16 @@ impl QuicClient {
                 .update_stat(&self.stats.tx_acks, new_stats.frame_tx.acks);
 
             last_connection_id = connection.connection.stable_id();
-            match Self::_send_buffer_using_conn(data, &connection).await {
+            match Self::_send_buffer_using_conn(data, &connection, listen_to_server_errors).await {
                 Ok(()) => {
                     return Ok(connection);
                 }
                 Err(err) => match err {
                     QuicError::ConnectionError(_) => {
                         last_error = Some(err);
-                    }
+                    },
                     _ => {
-                        info!(
+                        error!(
                             "Error sending to {} with id {}, error {:?} thread: {:?}",
                             self.addr,
                             connection.connection.stable_id(),
@@ -438,7 +464,7 @@ impl QuicClient {
     where
         T: AsRef<[u8]>,
     {
-        self._send_buffer(data.as_ref(), stats, connection_stats)
+        self._send_buffer(data.as_ref(), stats, connection_stats, true)
             .await?;
         Ok(())
     }
@@ -448,6 +474,7 @@ impl QuicClient {
         buffers: &[T],
         stats: &ClientStats,
         connection_stats: Arc<ConnectionCacheStats>,
+        listen_to_server_errors: bool,
     ) -> Result<(), ClientErrorKind>
     where
         T: AsRef<[u8]>,
@@ -467,7 +494,7 @@ impl QuicClient {
             return Ok(());
         }
         let connection = self
-            ._send_buffer(buffers[0].as_ref(), stats, connection_stats)
+            ._send_buffer(buffers[0].as_ref(), stats, connection_stats, listen_to_server_errors)
             .await?;
 
         // Used to avoid dereferencing the Arc multiple times below
@@ -482,7 +509,7 @@ impl QuicClient {
                 join_all(
                     buffs
                         .into_iter()
-                        .map(|buf| Self::_send_buffer_using_conn(buf.as_ref(), connection_ref)),
+                        .map(|buf| Self::_send_buffer_using_conn(buf.as_ref(), connection_ref, listen_to_server_errors)),
                 )
             })
             .collect();
@@ -554,7 +581,7 @@ impl TpuConnection for QuicTpuConnection {
         let len = buffers.len();
         let res = self
             .client
-            .send_batch(buffers, &stats, self.connection_stats.clone())
+            .send_batch(buffers, &stats, self.connection_stats.clone(), true)
             .await;
         self.connection_stats
             .add_client_stats(&stats, len, res.is_ok());
