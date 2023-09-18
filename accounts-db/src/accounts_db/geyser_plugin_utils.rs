@@ -72,6 +72,8 @@ impl AccountsDb {
         P: Iterator<Item = u64>,
     {
         if let Some(accounts_update_notifier) = &self.accounts_update_notifier {
+            let cached_account = self.accounts_cache.load(slot, pubkey);
+
             let notifier = &accounts_update_notifier.read().unwrap();
             notifier.notify_account_update(
                 slot,
@@ -79,6 +81,9 @@ impl AccountsDb {
                 txn,
                 pubkey,
                 write_version_producer.next().unwrap(),
+                cached_account
+                    .as_ref()
+                    .map(|cached_account| &cached_account.account),
             );
         }
     }
@@ -191,6 +196,7 @@ pub mod tests {
     struct GeyserTestPlugin {
         pub accounts_notified: DashMap<Pubkey, Vec<(Slot, AccountSharedData)>>,
         pub is_startup_done: AtomicBool,
+        pub old_account_data: DashMap<Pubkey, Vec<(Slot, Option<AccountSharedData>)>>,
     }
 
     impl AccountsUpdateNotifierInterface for GeyserTestPlugin {
@@ -202,11 +208,16 @@ pub mod tests {
             _txn: &Option<&SanitizedTransaction>,
             pubkey: &Pubkey,
             _write_version: u64,
+            old_account_data: Option<&AccountSharedData>,
         ) {
             self.accounts_notified
                 .entry(*pubkey)
                 .or_default()
                 .push((slot, account.clone()));
+            self.old_account_data
+                .entry(*pubkey)
+                .or_default()
+                .push((slot, old_account_data.map(|x| x.clone())));
         }
 
         /// Notified when the AccountsDb is initialized at start when restored
@@ -366,44 +377,74 @@ pub mod tests {
         let account1 = AccountSharedData::new(account1_lamports2, 1, account1.owner());
         accounts.store_cached((slot1, &[(&key1, &account1)][..]), None);
 
+        let account3_owner = Pubkey::new_unique();
         let key3 = solana_sdk::pubkey::new_rand();
         let account3_lamports: u64 = 300;
-        let account3 =
-            AccountSharedData::new(account3_lamports, 1, AccountSharedData::default().owner());
+        let account3 = AccountSharedData::new(account3_lamports, 1, &account3_owner);
         accounts.store_cached((slot1, &[(&key3, &account3)][..]), None);
 
-        let notifier = notifier.write().unwrap();
-        assert_eq!(notifier.accounts_notified.get(&key1).unwrap().len(), 2);
-        assert_eq!(
-            notifier.accounts_notified.get(&key1).unwrap()[0]
-                .1
-                .lamports(),
-            account1_lamports1
-        );
-        assert_eq!(notifier.accounts_notified.get(&key1).unwrap()[0].0, slot0);
-        assert_eq!(
-            notifier.accounts_notified.get(&key1).unwrap()[1]
-                .1
-                .lamports(),
-            account1_lamports2
-        );
-        assert_eq!(notifier.accounts_notified.get(&key1).unwrap()[1].0, slot1);
+        // delete account 3
+        let account3_lamports: u64 = 0;
+        let account3 = AccountSharedData::new(account3_lamports, 1, &account3_owner);
+        accounts.store_cached((slot1, &[(&key3, &account3)][..]), None);
 
-        assert_eq!(notifier.accounts_notified.get(&key2).unwrap().len(), 1);
-        assert_eq!(
-            notifier.accounts_notified.get(&key2).unwrap()[0]
+        {
+            let notifier = notifier.write().unwrap();
+            assert_eq!(notifier.accounts_notified.get(&key1).unwrap().len(), 2);
+            assert_eq!(
+                notifier.accounts_notified.get(&key1).unwrap()[0]
+                    .1
+                    .lamports(),
+                account1_lamports1
+            );
+            assert_eq!(notifier.accounts_notified.get(&key1).unwrap()[0].0, slot0);
+            assert_eq!(
+                notifier.accounts_notified.get(&key1).unwrap()[1]
+                    .1
+                    .lamports(),
+                account1_lamports2
+            );
+            assert_eq!(notifier.accounts_notified.get(&key1).unwrap()[1].0, slot1);
+
+            assert_eq!(notifier.accounts_notified.get(&key2).unwrap().len(), 1);
+            assert_eq!(
+                notifier.accounts_notified.get(&key2).unwrap()[0]
+                    .1
+                    .lamports(),
+                account2_lamports
+            );
+            assert_eq!(notifier.accounts_notified.get(&key2).unwrap()[0].0, slot0);
+            assert_eq!(notifier.accounts_notified.get(&key3).unwrap().len(), 2);
+            assert_eq!(
+                notifier.accounts_notified.get(&key3).unwrap()[0]
+                    .1
+                    .lamports(),
+                300
+            );
+            assert_eq!(
+                notifier.accounts_notified.get(&key3).unwrap()[0].1.owner(),
+                &account3_owner
+            );
+            assert_eq!(notifier.accounts_notified.get(&key3).unwrap()[0].0, slot1);
+
+            assert_eq!(notifier.accounts_notified.get(&key3).unwrap()[1].0, slot1);
+            assert_eq!(
+                notifier.accounts_notified.get(&key3).unwrap()[1]
+                    .1
+                    .lamports(),
+                0
+            );
+            assert_eq!(
+                notifier.accounts_notified.get(&key3).unwrap()[1].1.owner(),
+                &Pubkey::default()
+            );
+            assert!(notifier.old_account_data.get(&key3).unwrap()[1].1.is_some());
+            let old_account = notifier.old_account_data.get(&key3).unwrap()[1]
                 .1
-                .lamports(),
-            account2_lamports
-        );
-        assert_eq!(notifier.accounts_notified.get(&key2).unwrap()[0].0, slot0);
-        assert_eq!(notifier.accounts_notified.get(&key3).unwrap().len(), 1);
-        assert_eq!(
-            notifier.accounts_notified.get(&key3).unwrap()[0]
-                .1
-                .lamports(),
-            account3_lamports
-        );
-        assert_eq!(notifier.accounts_notified.get(&key3).unwrap()[0].0, slot1);
+                .clone()
+                .unwrap();
+            assert_eq!(old_account.lamports(), 300);
+            assert_eq!(old_account.owner(), &account3_owner);
+        }
     }
 }

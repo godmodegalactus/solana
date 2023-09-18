@@ -63,7 +63,6 @@ impl GeyserPluginManager {
         }
         false
     }
-
     /// Admin RPC request handler
     pub(crate) fn list_plugins(&self) -> JsonRpcResult<Vec<String>> {
         Ok(self.plugins.iter().map(|p| p.name().to_owned()).collect())
