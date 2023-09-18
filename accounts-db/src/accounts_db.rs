@@ -6819,19 +6819,21 @@ impl AccountsDb {
         txn_iter
             .enumerate()
             .map(|(i, txn)| {
+                self.notify_account_at_accounts_update(
+                    slot,
+                    &accounts_and_meta_to_store
+                        .account(i)
+                        .to_account_shared_data(),
+                    txn,
+                    accounts_and_meta_to_store.pubkey(i),
+                    &mut write_version_producer,
+                );
+
                 let account = accounts_and_meta_to_store
                     .account_default_if_zero_lamport(i)
                     .map(|account| account.to_account_shared_data())
                     .unwrap_or_default();
                 let account_info = AccountInfo::new(StorageLocation::Cached, account.lamports());
-
-                self.notify_account_at_accounts_update(
-                    slot,
-                    &account,
-                    txn,
-                    accounts_and_meta_to_store.pubkey(i),
-                    &mut write_version_producer,
-                );
 
                 let cached_account = self.accounts_cache.store(
                     slot,

@@ -372,38 +372,59 @@ pub mod tests {
             AccountSharedData::new(account3_lamports, 1, AccountSharedData::default().owner());
         accounts.store_cached((slot1, &[(&key3, &account3)][..]), None);
 
-        let notifier = notifier.write().unwrap();
-        assert_eq!(notifier.accounts_notified.get(&key1).unwrap().len(), 2);
-        assert_eq!(
-            notifier.accounts_notified.get(&key1).unwrap()[0]
-                .1
-                .lamports(),
-            account1_lamports1
-        );
-        assert_eq!(notifier.accounts_notified.get(&key1).unwrap()[0].0, slot0);
-        assert_eq!(
-            notifier.accounts_notified.get(&key1).unwrap()[1]
-                .1
-                .lamports(),
-            account1_lamports2
-        );
-        assert_eq!(notifier.accounts_notified.get(&key1).unwrap()[1].0, slot1);
+        {
+            let notifier = notifier.write().unwrap();
+            assert_eq!(notifier.accounts_notified.get(&key1).unwrap().len(), 2);
+            assert_eq!(
+                notifier.accounts_notified.get(&key1).unwrap()[0]
+                    .1
+                    .lamports(),
+                account1_lamports1
+            );
+            assert_eq!(notifier.accounts_notified.get(&key1).unwrap()[0].0, slot0);
+            assert_eq!(
+                notifier.accounts_notified.get(&key1).unwrap()[1]
+                    .1
+                    .lamports(),
+                account1_lamports2
+            );
+            assert_eq!(notifier.accounts_notified.get(&key1).unwrap()[1].0, slot1);
 
-        assert_eq!(notifier.accounts_notified.get(&key2).unwrap().len(), 1);
-        assert_eq!(
-            notifier.accounts_notified.get(&key2).unwrap()[0]
-                .1
-                .lamports(),
-            account2_lamports
-        );
-        assert_eq!(notifier.accounts_notified.get(&key2).unwrap()[0].0, slot0);
-        assert_eq!(notifier.accounts_notified.get(&key3).unwrap().len(), 1);
-        assert_eq!(
-            notifier.accounts_notified.get(&key3).unwrap()[0]
-                .1
-                .lamports(),
-            account3_lamports
-        );
-        assert_eq!(notifier.accounts_notified.get(&key3).unwrap()[0].0, slot1);
+            assert_eq!(notifier.accounts_notified.get(&key2).unwrap().len(), 1);
+            assert_eq!(
+                notifier.accounts_notified.get(&key2).unwrap()[0]
+                    .1
+                    .lamports(),
+                account2_lamports
+            );
+            assert_eq!(notifier.accounts_notified.get(&key2).unwrap()[0].0, slot0);
+            assert_eq!(notifier.accounts_notified.get(&key3).unwrap().len(), 1);
+            assert_eq!(
+                notifier.accounts_notified.get(&key3).unwrap()[0]
+                    .1
+                    .lamports(),
+                account3_lamports
+            );
+            assert_eq!(notifier.accounts_notified.get(&key3).unwrap()[0].0, slot1);
+        }
+
+        // delete account 3
+        let slot2 = 2;
+        let account3_lamports: u64 = 0;
+        let account3 =
+            AccountSharedData::new(account3_lamports, 1, AccountSharedData::default().owner());
+        accounts.store_cached((slot2, &[(&key3, &account3)][..]), None);
+
+        {
+            let notifier = notifier.write().unwrap();
+            assert_eq!(notifier.accounts_notified.get(&key3).unwrap().len(), 2);
+            assert_eq!(
+                notifier.accounts_notified.get(&key3).unwrap()[1]
+                    .1
+                    .lamports(),
+                0
+            );
+            assert_eq!(notifier.accounts_notified.get(&key3).unwrap()[1].0, slot2);
+        }
     }
 }
