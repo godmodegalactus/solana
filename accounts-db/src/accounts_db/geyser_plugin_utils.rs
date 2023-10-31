@@ -217,7 +217,7 @@ pub mod tests {
             self.old_account_data
                 .entry(*pubkey)
                 .or_default()
-                .push((slot, old_account_data.map(|x| x.clone())));
+                .push((slot, old_account_data.cloned()));
         }
 
         /// Notified when the AccountsDb is initialized at start when restored
