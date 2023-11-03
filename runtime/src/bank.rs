@@ -5597,6 +5597,7 @@ impl Bank {
             &durable_nonce,
             lamports_per_signature,
             self.include_slot_in_hash(),
+            Some(&self.ancestors),
         );
         let rent_debits = self.collect_rent(&execution_results, loaded_txs);
 

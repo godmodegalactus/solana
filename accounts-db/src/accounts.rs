@@ -1312,6 +1312,7 @@ impl Accounts {
         durable_nonce: &DurableNonce,
         lamports_per_signature: u64,
         include_slot_in_hash: IncludeSlotInHash,
+        ancestors: Option<&Ancestors>,
     ) {
         let (accounts_to_store, transactions) = self.collect_accounts_to_store(
             txs,
@@ -1324,6 +1325,7 @@ impl Accounts {
         self.accounts_db.store_cached_inline_update_index(
             (slot, &accounts_to_store[..], include_slot_in_hash),
             Some(&transactions),
+            ancestors,
         );
     }
 
@@ -1331,7 +1333,7 @@ impl Accounts {
         &self,
         accounts: impl StorableAccounts<'a, T>,
     ) {
-        self.accounts_db.store_cached(accounts, None)
+        self.accounts_db.store_cached(accounts, None, None)
     }
 
     /// Add a slot to root.  Root slots cannot be purged
