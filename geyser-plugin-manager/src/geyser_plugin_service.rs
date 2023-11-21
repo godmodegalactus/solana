@@ -19,7 +19,7 @@ use {
         transaction_notifier_interface::TransactionNotifierLock,
     },
     solana_runtime::accounts_update_notifier_interface::AccountsUpdateNotifier,
-    solana_sdk::transaction::BankingTransactionResultNotifierLock,
+    solana_sdk::transaction::BankingTransactionResultNotifier,
     std::{
         path::{Path, PathBuf},
         sync::{
@@ -40,7 +40,7 @@ pub struct GeyserPluginService {
     transaction_notifier: Option<TransactionNotifierLock>,
     entry_notifier: Option<EntryNotifierLock>,
     block_metadata_notifier: Option<BlockMetadataNotifierLock>,
-    banking_transaction_result_notifier: Option<BankingTransactionResultNotifierLock>,
+    banking_transaction_result_notifier: Option<BankingTransactionResultNotifier>,
 }
 
 impl GeyserPluginService {
@@ -113,11 +113,13 @@ impl GeyserPluginService {
             None
         };
 
-        let transaction_result_notifier: Option<BankingTransactionResultNotifierLock> =
+        let transaction_result_notifier: Option<BankingTransactionResultNotifier> =
             if banking_stage_transaction_result_notification {
                 let banking_transaction_result_notifier =
                     BankingTransactionResultImpl::new(plugin_manager.clone());
-                Some(Arc::new(RwLock::new(banking_transaction_result_notifier)))
+                Some(BankingTransactionResultNotifier {
+                    lock: Arc::new(RwLock::new(banking_transaction_result_notifier)),
+                })
             } else {
                 None
             };
@@ -186,7 +188,7 @@ impl GeyserPluginService {
 
     pub fn get_banking_transaction_result_notifier(
         &self,
-    ) -> Option<BankingTransactionResultNotifierLock> {
+    ) -> Option<BankingTransactionResultNotifier> {
         self.banking_transaction_result_notifier.clone()
     }
 

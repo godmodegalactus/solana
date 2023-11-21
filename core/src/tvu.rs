@@ -44,6 +44,11 @@ use {
     solana_runtime::{
         accounts_background_service::AbsRequestSender, bank_forks::BankForks,
         commitment::BlockCommitmentCache, prioritization_fee_cache::PrioritizationFeeCache,
+        vote_sender_types::ReplayVoteSender,
+    },
+    solana_sdk::{
+        clock::Slot, pubkey::Pubkey, signature::Keypair,
+        transaction::BankingTransactionResultNotifier,
     },
     solana_sdk::{clock::Slot, pubkey::Pubkey, signature::Keypair, transaction::BankingTransactionResultNotifierLock,},
     solana_turbine::retransmit_stage::RetransmitStage,
