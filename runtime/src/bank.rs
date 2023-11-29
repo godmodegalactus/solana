@@ -374,6 +374,7 @@ pub struct LoadAndExecuteTransactionsOutput {
     pub executed_with_successful_result_count: usize,
     pub signature_count: u64,
     pub error_counters: TransactionErrorMetrics,
+    pub preexecution_account_states: Option<HashMap<Pubkey, AccountSharedData>>,
 }
 
 #[derive(Debug, Clone)]
@@ -4461,6 +4462,34 @@ impl Bank {
         );
         load_time.stop();
 
+        let preexecution_account_states: Option<HashMap<Pubkey, AccountSharedData>> = self
+            .accounts()
+            .enable_preexecution_account_states_notification()
+            .then(|| {
+                // filter all the writable accounts so that we can notify geyser preexecution account states
+                // this will enable us to track changes in the accounts via geyser
+                // this feature is only enabled if a geyser plugin return true for `enable_pre_trasaction_execution_accounts_data`
+                loaded_transactions
+                    .iter()
+                    .zip(sanitized_txs.iter())
+                    .filter_map(|(transactions, sanitized_transaction)| {
+                        transactions.0.as_ref().ok().map(|transaction| {
+                            transaction.accounts.iter().enumerate().filter_map(
+                                |(account_index, account)| {
+                                    if sanitized_transaction.message().is_writable(account_index) {
+                                        Some(account)
+                                    } else {
+                                        None
+                                    }
+                                },
+                            )
+                        })
+                    })
+                    .flatten()
+                    .cloned()
+                    .collect()
+            });
+
         let mut execution_time = Measure::start("execution_time");
         let mut signature_count: u64 = 0;
 
@@ -4678,6 +4707,7 @@ impl Bank {
             executed_with_successful_result_count,
             signature_count,
             error_counters,
+            preexecution_account_states,
         }
     }
 
@@ -4952,6 +4982,7 @@ impl Bank {
         lamports_per_signature: u64,
         counts: CommitTransactionCounts,
         timings: &mut ExecuteTimings,
+        preexecution_account_states: Option<HashMap<Pubkey, AccountSharedData>>,
     ) -> TransactionResults {
         assert!(
             !self.freeze_started(),
@@ -4991,10 +5022,10 @@ impl Bank {
             sanitized_txs,
             &execution_results,
             loaded_txs,
-            &self.rent_collector,
             &durable_nonce,
             lamports_per_signature,
             self.include_slot_in_hash(),
+            preexecution_account_states,
         );
         let rent_debits = self.collect_rent(&execution_results, loaded_txs);
 
@@ -5831,6 +5862,7 @@ impl Bank {
             executed_non_vote_transactions_count,
             executed_with_successful_result_count,
             signature_count,
+            preexecution_account_states,
             ..
         } = self.load_and_execute_transactions(
             batch,
@@ -5860,6 +5892,7 @@ impl Bank {
                 signature_count,
             },
             timings,
+            preexecution_account_states,
         );
         let post_balances = if collect_balances {
             self.collect_balances(batch)
