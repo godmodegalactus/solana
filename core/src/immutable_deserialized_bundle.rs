@@ -4,6 +4,7 @@ use {
         packet_bundle::PacketBundle,
     },
     solana_accounts_db::transaction_error_metrics::TransactionErrorMetrics,
+    itertools::{Itertools, MinMaxResult},
     solana_perf::sigverify::verify_packet,
     solana_runtime::bank::Bank,
     solana_sdk::{
@@ -165,6 +166,10 @@ impl ImmutableDeserializedBundle {
             transactions,
             bundle_id: self.bundle_id.clone(),
         })
+    }
+
+    pub fn get_minmax_priorization_fees(&self) -> MinMaxResult<u64> {
+        self.packets.iter().map(|packet| packet.priority()).minmax()
     }
 }
 
