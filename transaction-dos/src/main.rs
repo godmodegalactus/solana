@@ -248,6 +248,7 @@ fn run_transactions_dos(
             is_final: true,
             max_len: None,
             skip_fee_check: true, // skip_fee_check
+            prioritization_fees: None,
         });
 
         process_command(&config).expect("deploy didn't pass");

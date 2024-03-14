@@ -87,6 +87,7 @@ fn test_cli_program_deploy_non_upgradeable() {
         is_final: true,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: Some(1000),
     });
     config.output_format = OutputFormat::JsonCompact;
     let response = process_command(&config);
@@ -136,6 +137,7 @@ fn test_cli_program_deploy_non_upgradeable() {
         is_final: true,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: Some(100),
     });
     process_command(&config).unwrap();
     let account1 = rpc_client
@@ -194,6 +196,7 @@ fn test_cli_program_deploy_non_upgradeable() {
         is_final: true,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: Some(20),
     });
     let err = process_command(&config).unwrap_err();
     assert_eq!(
@@ -217,6 +220,7 @@ fn test_cli_program_deploy_non_upgradeable() {
         is_final: true,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: Some(1000),
     });
     process_command(&config).unwrap_err();
 }
@@ -278,6 +282,7 @@ fn test_cli_program_deploy_no_authority() {
         is_final: true,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: Some(1000),
     });
     config.output_format = OutputFormat::JsonCompact;
     let response = process_command(&config);
@@ -305,6 +310,7 @@ fn test_cli_program_deploy_no_authority() {
         is_final: false,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: Some(1000),
     });
     process_command(&config).unwrap_err();
 }
@@ -367,6 +373,7 @@ fn test_cli_program_deploy_with_authority() {
         is_final: false,
         max_len: Some(max_len),
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     config.output_format = OutputFormat::JsonCompact;
     let response = process_command(&config);
@@ -419,6 +426,7 @@ fn test_cli_program_deploy_with_authority() {
         is_final: false,
         max_len: Some(max_len),
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     let response = process_command(&config);
     let json: Value = serde_json::from_str(&response.unwrap()).unwrap();
@@ -465,6 +473,7 @@ fn test_cli_program_deploy_with_authority() {
         is_final: false,
         max_len: Some(max_len),
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     process_command(&config).unwrap();
     let program_account = rpc_client.get_account(&program_pubkey).unwrap();
@@ -543,6 +552,7 @@ fn test_cli_program_deploy_with_authority() {
         is_final: false,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     process_command(&config).unwrap();
     let program_account = rpc_client.get_account(&program_pubkey).unwrap();
@@ -625,6 +635,7 @@ fn test_cli_program_deploy_with_authority() {
         is_final: false,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     process_command(&config).unwrap_err();
 
@@ -642,6 +653,7 @@ fn test_cli_program_deploy_with_authority() {
         is_final: true,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     let response = process_command(&config);
     let json: Value = serde_json::from_str(&response.unwrap()).unwrap();
@@ -746,6 +758,7 @@ fn test_cli_program_close_program() {
         is_final: false,
         max_len: Some(max_len),
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     config.output_format = OutputFormat::JsonCompact;
     process_command(&config).unwrap();
@@ -856,6 +869,7 @@ fn test_cli_program_extend_program() {
         is_final: false,
         max_len: None, // Use None to check that it defaults to the max length
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     config.output_format = OutputFormat::JsonCompact;
     process_command(&config).unwrap();
@@ -903,6 +917,7 @@ fn test_cli_program_extend_program() {
         is_final: false,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     process_command(&config).unwrap_err();
 
@@ -935,6 +950,7 @@ fn test_cli_program_extend_program() {
         is_final: false,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     process_command(&config).unwrap();
 }
@@ -999,6 +1015,7 @@ fn test_cli_program_write_buffer() {
         buffer_authority_signer_index: 0,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     config.output_format = OutputFormat::JsonCompact;
     let response = process_command(&config);
@@ -1035,6 +1052,7 @@ fn test_cli_program_write_buffer() {
         buffer_authority_signer_index: 0,
         max_len: Some(max_len),
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     let response = process_command(&config);
     let json: Value = serde_json::from_str(&response.unwrap()).unwrap();
@@ -1098,6 +1116,7 @@ fn test_cli_program_write_buffer() {
         buffer_authority_signer_index: 2,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     let response = process_command(&config);
     let json: Value = serde_json::from_str(&response.unwrap()).unwrap();
@@ -1137,6 +1156,7 @@ fn test_cli_program_write_buffer() {
         buffer_authority_signer_index: 2,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     let response = process_command(&config);
     let json: Value = serde_json::from_str(&response.unwrap()).unwrap();
@@ -1212,6 +1232,7 @@ fn test_cli_program_write_buffer() {
         buffer_authority_signer_index: 0,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     config.output_format = OutputFormat::JsonCompact;
     let response = process_command(&config);
@@ -1254,6 +1275,7 @@ fn test_cli_program_write_buffer() {
         buffer_authority_signer_index: 0,
         max_len: None, //Some(max_len),
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     process_command(&config).unwrap();
     config.signers = vec![&keypair, &buffer_keypair];
@@ -1269,6 +1291,7 @@ fn test_cli_program_write_buffer() {
         is_final: true,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     config.output_format = OutputFormat::JsonCompact;
     let error = process_command(&config).unwrap_err();
@@ -1328,6 +1351,7 @@ fn test_cli_program_set_buffer_authority() {
         buffer_authority_signer_index: 0,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     process_command(&config).unwrap();
     let buffer_account = rpc_client.get_account(&buffer_keypair.pubkey()).unwrap();
@@ -1380,6 +1404,7 @@ fn test_cli_program_set_buffer_authority() {
         is_final: false,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     config.output_format = OutputFormat::JsonCompact;
     process_command(&config).unwrap_err();
@@ -1425,6 +1450,7 @@ fn test_cli_program_set_buffer_authority() {
         is_final: false,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     config.output_format = OutputFormat::JsonCompact;
     process_command(&config).unwrap();
@@ -1481,6 +1507,7 @@ fn test_cli_program_mismatch_buffer_authority() {
         buffer_authority_signer_index: 2,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     process_command(&config).unwrap();
     let buffer_account = rpc_client.get_account(&buffer_keypair.pubkey()).unwrap();
@@ -1505,6 +1532,7 @@ fn test_cli_program_mismatch_buffer_authority() {
         is_final: true,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     process_command(&config).unwrap_err();
 
@@ -1522,6 +1550,7 @@ fn test_cli_program_mismatch_buffer_authority() {
         is_final: true,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     process_command(&config).unwrap();
 }
@@ -1605,6 +1634,7 @@ fn test_cli_program_deploy_with_offline_signing(use_offline_signer_as_fee_payer:
         is_final: false,
         max_len: Some(max_program_data_len), // allows for larger program size with future upgrades
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     config.output_format = OutputFormat::JsonCompact;
     process_command(&config).unwrap();
@@ -1635,6 +1665,7 @@ fn test_cli_program_deploy_with_offline_signing(use_offline_signer_as_fee_payer:
         sign_only: true,
         dump_transaction_message: false,
         blockhash_query: BlockhashQuery::new(Some(blockhash), true, None),
+        prioritization_fees: None,
     });
     config.output_format = OutputFormat::JsonCompact;
     let sig_response = process_command(&config).unwrap();
@@ -1656,6 +1687,7 @@ fn test_cli_program_deploy_with_offline_signing(use_offline_signer_as_fee_payer:
         sign_only: false,
         dump_transaction_message: false,
         blockhash_query: BlockhashQuery::new(Some(blockhash), true, None),
+        prioritization_fees: None,
     });
     config.output_format = OutputFormat::JsonCompact;
     let error = process_command(&config).unwrap_err();
@@ -1677,6 +1709,7 @@ fn test_cli_program_deploy_with_offline_signing(use_offline_signer_as_fee_payer:
         sign_only: true,
         dump_transaction_message: false,
         blockhash_query: BlockhashQuery::new(Some(blockhash), true, None),
+        prioritization_fees: None,
     });
     config.output_format = OutputFormat::JsonCompact;
     let sig_response = process_command(&config).unwrap();
@@ -1698,6 +1731,7 @@ fn test_cli_program_deploy_with_offline_signing(use_offline_signer_as_fee_payer:
         sign_only: false,
         dump_transaction_message: false,
         blockhash_query: BlockhashQuery::new(Some(blockhash), true, None),
+        prioritization_fees: None,
     });
     config.output_format = OutputFormat::JsonCompact;
     process_command(&config).unwrap();
@@ -1772,6 +1806,7 @@ fn test_cli_program_show() {
         buffer_authority_signer_index: 2,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     process_command(&config).unwrap();
 
@@ -1833,6 +1868,7 @@ fn test_cli_program_show() {
         is_final: false,
         max_len: Some(max_len),
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     config.output_format = OutputFormat::JsonCompact;
     let min_slot = rpc_client.get_slot().unwrap();
@@ -1961,6 +1997,7 @@ fn test_cli_program_dump() {
         buffer_authority_signer_index: 2,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     process_command(&config).unwrap();
 
@@ -2004,6 +2041,7 @@ fn create_buffer_with_offline_authority<'a>(
         buffer_authority_signer_index: 0,
         max_len: None,
         skip_fee_check: false,
+        prioritization_fees: None,
     });
     process_command(config).unwrap();
     let buffer_account = rpc_client.get_account(&buffer_signer.pubkey()).unwrap();

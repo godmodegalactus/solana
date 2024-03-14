@@ -301,7 +301,16 @@ async fn sign_all_messages_and_send<T: Signers + ?Sized>(
         );
     }
     // collect to convert Vec<Result<_>> to Result<Vec<_>>
-    join_all(futures).await.into_iter().collect::<Result<_>>()?;
+    match tokio::time::timeout(Duration::from_secs(120), join_all(futures)).await {
+        Ok(join_result) => {
+            join_result.into_iter().collect::<Result<_>>()?;
+        }
+        Err(_) => {
+            // It is fine if sending transactions to rpc is timed out here, we will retry it anyways,
+            // without this timeout cli waits indefinetly for all tasks to join
+            log::warn!("Timedout sending all transactions to RPC, will continue");
+        }
+    }
     Ok(())
 }
 

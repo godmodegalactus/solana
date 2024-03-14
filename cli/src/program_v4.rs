@@ -585,16 +585,16 @@ pub fn process_deploy_program(
         };
 
     // Create and add write messages
-    let create_msg = |offset: u32, bytes: Vec<u8>| {
+    let create_msg = |offset: u32, bytes: Vec<u8>, _prioritization_fees_ix: Option<Instruction>| {
         let instruction =
             loader_v4::write(&buffer_address, &config.authority.pubkey(), offset, bytes);
         Message::new_with_blockhash(&[instruction], Some(&payer_pubkey), &blockhash)
     };
 
     let mut write_messages = vec![];
-    let chunk_size = calculate_max_chunk_size(&create_msg);
+    let chunk_size = calculate_max_chunk_size(&create_msg, None);
     for (chunk, i) in program_data.chunks(chunk_size).zip(0..) {
-        write_messages.push(create_msg((i * chunk_size) as u32, chunk.to_vec()));
+        write_messages.push(create_msg((i * chunk_size) as u32, chunk.to_vec(), None));
     }
 
     let final_messages = if *program_address != buffer_address {
