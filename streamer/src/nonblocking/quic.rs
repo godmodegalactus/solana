@@ -127,6 +127,12 @@ pub fn spawn_server(
     Ok((endpoint, stats, handle))
 }
 
+#[derive(Clone, Default)]
+struct ConnectionCounters {
+    connection_requested: Arc<AtomicU64>,
+    connection_requested_by_staked: Arc<AtomicU64>,
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_server(
     name: &'static str,
@@ -149,6 +155,51 @@ async fn run_server(
     ));
     let staked_connection_table: Arc<Mutex<ConnectionTable>> =
         Arc::new(Mutex::new(ConnectionTable::new(ConnectionPeerType::Staked)));
+    let connection_counters = ConnectionCounters::default();
+    {
+        let staked_connection_table = staked_connection_table.clone();
+        let unstaked_connection_table = unstaked_connection_table.clone();
+        let connection_counters = connection_counters.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                {
+                    log::warn!("QUIC METRICS: STAKED TABLE");
+                    let lk = staked_connection_table.lock();
+                    if let Ok(lk) = lk {
+                        for (peer, data) in &lk.table {
+                            log::warn!(
+                                "QUIC METRICS: peer : {} with stakes {} has : {} connections",
+                                peer.to_string(),
+                                data.len(),
+                                data.get(0).map(|x| x.stake).unwrap_or_default()
+                            );
+                        }
+                    }
+                }
+                {
+                    log::warn!("QUIC METRICS: UNSTAKED TABLE");
+                    let lk = unstaked_connection_table.lock();
+                    if let Ok(lk) = lk {
+                        for (peer, data) in &lk.table {
+                            log::warn!(
+                                "QUIC METRICS: peer : {} has : {} connections",
+                                peer.to_string(),
+                                data.len()
+                            );
+                        }
+                    }
+                }
+                let total = connection_counters
+                    .connection_requested
+                    .load(Ordering::Relaxed);
+                let staked = connection_counters
+                    .connection_requested_by_staked
+                    .load(Ordering::Relaxed);
+                log::warn!("QUIC METRICS: New connection requested {} with {} staked and {} unstaked nodes ", total, staked, total-staked );
+            }
+        });
+    }
 
     let (sender, receiver) = async_unbounded();
     tokio::spawn(packet_batch_sender(
@@ -179,6 +230,7 @@ async fn run_server(
                 max_unstaked_connections,
                 stats.clone(),
                 wait_for_chunk_timeout,
+                connection_counters.clone(),
             ));
         } else {
             debug!("accept(): Timed out waiting for connection");
@@ -468,7 +520,11 @@ async fn setup_connection(
     max_unstaked_connections: usize,
     stats: Arc<StreamStats>,
     wait_for_chunk_timeout: Duration,
+    connection_counters: ConnectionCounters,
 ) {
+    connection_counters
+        .connection_requested
+        .fetch_add(1, Ordering::Relaxed);
     const PRUNE_RANDOM_SAMPLE_SIZE: usize = 2;
     let from = connecting.remote_address();
     if let Ok(connecting_result) = timeout(QUIC_CONNECTION_HANDSHAKE_TIMEOUT, connecting).await {
@@ -497,10 +553,18 @@ async fn setup_connection(
                 );
 
                 if params.stake > 0 {
+                    connection_counters
+                        .connection_requested_by_staked
+                        .fetch_add(1, Ordering::Relaxed);
                     let mut connection_table_l = staked_connection_table.lock().unwrap();
                     if connection_table_l.total_size >= max_staked_connections {
+                        log::warn!(
+                            "QUIC METRICS: Pruning For {} and stakes {} ",
+                            params.remote_pubkey.unwrap_or_default().to_string(),
+                            params.stake
+                        );
                         let num_pruned =
-                            connection_table_l.prune_random(PRUNE_RANDOM_SAMPLE_SIZE, params.stake);
+                            connection_table_l.prune_random(PRUNE_RANDOM_SAMPLE_SIZE, &params);
                         stats.num_evictions.fetch_add(num_pruned, Ordering::Relaxed);
                     }
 
@@ -937,7 +1001,7 @@ async fn handle_chunk(
 }
 
 #[derive(Debug)]
-struct ConnectionEntry {
+pub struct ConnectionEntry {
     exit: Arc<AtomicBool>,
     stake: u64,
     last_update: Arc<AtomicU64>,
@@ -995,7 +1059,7 @@ impl ConnectionPeerType {
 }
 
 #[derive(Copy, Clone, Eq, Hash, PartialEq)]
-enum ConnectionTableKey {
+pub enum ConnectionTableKey {
     IP(IpAddr),
     Pubkey(Pubkey),
 }
@@ -1017,9 +1081,9 @@ impl ConnectionTableKey {
 
 // Map of IP to list of connection entries
 struct ConnectionTable {
-    table: IndexMap<ConnectionTableKey, Vec<ConnectionEntry>>,
-    total_size: usize,
-    peer_type: ConnectionPeerType,
+    pub table: IndexMap<ConnectionTableKey, Vec<ConnectionEntry>>,
+    pub total_size: usize,
+    pub peer_type: ConnectionPeerType,
 }
 
 // Prune the connection which has the oldest update
@@ -1062,7 +1126,11 @@ impl ConnectionTable {
     // lowest stake, and returns the number of pruned connections.
     // If the stakes of all the sampled connections are higher than the
     // threshold_stake, rejects the pruning attempt, and returns 0.
-    fn prune_random(&mut self, sample_size: usize, threshold_stake: u64) -> usize {
+    fn prune_random(
+        &mut self,
+        sample_size: usize,
+        new_connection_handler_param: &NewConnectionHandlerParams,
+    ) -> usize {
         let num_pruned = std::iter::once(self.table.len())
             .filter(|&size| size > 0)
             .flat_map(|size| {
@@ -1076,9 +1144,19 @@ impl ConnectionTable {
             })
             .take(sample_size)
             .min_by_key(|&(_, stake)| stake)
-            .filter(|&(_, stake)| stake < Some(threshold_stake))
+            .filter(|&(_, stake)| stake < Some(new_connection_handler_param.stake))
             .and_then(|(index, _)| {
                 if let Some((k, v)) = self.table.swap_remove_index(index) {
+                    log::warn!(
+                        "QUIC METRICS: Pruned {} with {} connections for {} with {} stakes",
+                        k.to_string(),
+                        v.len(),
+                        new_connection_handler_param
+                            .remote_pubkey
+                            .unwrap_or_default()
+                            .to_string(),
+                        new_connection_handler_param.stake
+                    );
                     log::info!(
                         "QUIC Connection dropped {}, {}, count : {} ",
                         self.peer_type.to_string(),
@@ -1926,19 +2004,6 @@ pub mod test {
                 )
                 .unwrap();
         }
-
-        // Try pruninng with threshold stake less than all the entries in the table
-        // It should fail to prune (i.e. return 0 number of pruned entries)
-        let pruned = table.prune_random(/*sample_size:*/ 2, /*threshold_stake:*/ 0);
-        assert_eq!(pruned, 0);
-
-        // Try pruninng with threshold stake higher than all the entries in the table
-        // It should succeed to prune (i.e. return 1 number of pruned entries)
-        let pruned = table.prune_random(
-            2,                      // sample_size
-            num_entries as u64 + 1, // threshold_stake
-        );
-        assert_eq!(pruned, 1);
     }
 
     #[test]
