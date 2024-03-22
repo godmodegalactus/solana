@@ -131,6 +131,10 @@ pub fn spawn_server(
 struct ConnectionCounters {
     connection_requested: Arc<AtomicU64>,
     connection_requested_by_staked: Arc<AtomicU64>,
+    number_of_pruned_staked: Arc<AtomicU64>,
+    number_of_pruned_unstaked: Arc<AtomicU64>,
+    number_of_staked_fell_through_unstaked: Arc<AtomicU64>,
+    number_of_staked_failed_to_prune_unstaked: Arc<AtomicU64>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -160,16 +164,17 @@ async fn run_server(
         let staked_connection_table = staked_connection_table.clone();
         let unstaked_connection_table = unstaked_connection_table.clone();
         let connection_counters = connection_counters.clone();
+        let name = name.to_string();
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_secs(10)).await;
                 {
-                    log::warn!("QUIC METRICS: STAKED TABLE");
+                    log::warn!("QUIC METRICS {name:?}: STAKED TABLE");
                     let lk = staked_connection_table.lock();
                     if let Ok(lk) = lk {
                         for (peer, data) in &lk.table {
                             log::warn!(
-                                "QUIC METRICS: peer : {} with stakes {} has : {} connections",
+                                "QUIC METRICS {name:?}: peer : {} with stakes {} has : {} connections",
                                 peer.to_string(),
                                 data.len(),
                                 data.get(0).map(|x| x.stake).unwrap_or_default()
@@ -178,12 +183,12 @@ async fn run_server(
                     }
                 }
                 {
-                    log::warn!("QUIC METRICS: UNSTAKED TABLE");
+                    log::warn!("QUIC METRICS {name:?}: UNSTAKED TABLE");
                     let lk = unstaked_connection_table.lock();
                     if let Ok(lk) = lk {
                         for (peer, data) in &lk.table {
                             log::warn!(
-                                "QUIC METRICS: peer : {} has : {} connections",
+                                "QUIC METRICS {name:?}: peer : {} has : {} connections",
                                 peer.to_string(),
                                 data.len()
                             );
@@ -192,11 +197,23 @@ async fn run_server(
                 }
                 let total = connection_counters
                     .connection_requested
-                    .load(Ordering::Relaxed);
+                    .swap(0, Ordering::Relaxed);
                 let staked = connection_counters
                     .connection_requested_by_staked
-                    .load(Ordering::Relaxed);
-                log::warn!("QUIC METRICS: New connection requested {} with {} staked and {} unstaked nodes ", total, staked, total-staked );
+                    .swap(0, Ordering::Relaxed);
+                let number_of_pruned_staked = connection_counters
+                    .number_of_pruned_staked
+                    .swap(0, Ordering::Relaxed);
+                let number_of_pruned_unstaked = connection_counters
+                    .number_of_pruned_unstaked
+                    .swap(0, Ordering::Relaxed);
+                let number_of_staked_fell_through_unstaked = connection_counters
+                    .number_of_staked_fell_through_unstaked
+                    .swap(0, Ordering::Relaxed);
+                let number_of_staked_failed_to_prune_unstaked = connection_counters
+                    .number_of_staked_failed_to_prune_unstaked
+                    .swap(0, Ordering::Relaxed);
+                log::warn!("QUIC METRICS {name:?}: New connection requested {total:?} with {staked:?} staked and {} unstaked nodes, pruned_stake: {number_of_pruned_staked:?}, pruned unstaked :{number_of_pruned_unstaked:?}, number_of_staked_fell_through_unstaked:{number_of_staked_fell_through_unstaked}, number_of_staked_failed_to_prune_unstaked:{number_of_staked_failed_to_prune_unstaked:?}",total-staked );
             }
         });
     }
@@ -220,6 +237,7 @@ async fn run_server(
         if let Ok(Some(connection)) = timeout_connection {
             info!("Got a connection {:?}", connection.remote_address());
             tokio::spawn(setup_connection(
+                name,
                 connection,
                 unstaked_connection_table.clone(),
                 staked_connection_table.clone(),
@@ -510,6 +528,7 @@ fn compute_recieve_window(
 
 #[allow(clippy::too_many_arguments)]
 async fn setup_connection(
+    name: &'static str,
     connecting: Connecting,
     unstaked_connection_table: Arc<Mutex<ConnectionTable>>,
     staked_connection_table: Arc<Mutex<ConnectionTable>>,
@@ -559,13 +578,19 @@ async fn setup_connection(
                     let mut connection_table_l = staked_connection_table.lock().unwrap();
                     if connection_table_l.total_size >= max_staked_connections {
                         log::warn!(
-                            "QUIC METRICS: Pruning For {} and stakes {} ",
+                            "QUIC METRICS {name:?}: Pruning For {} and stakes {} ",
                             params.remote_pubkey.unwrap_or_default().to_string(),
                             params.stake
                         );
-                        let num_pruned =
-                            connection_table_l.prune_random(PRUNE_RANDOM_SAMPLE_SIZE, &params);
+                        let num_pruned = connection_table_l.prune_random(
+                            PRUNE_RANDOM_SAMPLE_SIZE,
+                            &params,
+                            name,
+                        );
                         stats.num_evictions.fetch_add(num_pruned, Ordering::Relaxed);
+                        connection_counters
+                            .number_of_pruned_staked
+                            .fetch_add(num_pruned as u64, Ordering::Relaxed);
                     }
 
                     if connection_table_l.total_size < max_staked_connections {
@@ -591,10 +616,19 @@ async fn setup_connection(
                             &params,
                             wait_for_chunk_timeout,
                         ) {
+                            connection_counters
+                                .number_of_pruned_unstaked
+                                .fetch_add(1, Ordering::Relaxed);
+                            connection_counters
+                                .number_of_staked_fell_through_unstaked
+                                .fetch_add(1, Ordering::Relaxed);
                             stats
                                 .connection_added_from_staked_peer
                                 .fetch_add(1, Ordering::Relaxed);
                         } else {
+                            connection_counters
+                                .number_of_staked_failed_to_prune_unstaked
+                                .fetch_add(1, Ordering::Relaxed);
                             stats
                                 .connection_add_failed_on_pruning
                                 .fetch_add(1, Ordering::Relaxed);
@@ -610,6 +644,9 @@ async fn setup_connection(
                     &params,
                     wait_for_chunk_timeout,
                 ) {
+                    connection_counters
+                        .number_of_pruned_unstaked
+                        .fetch_add(1, Ordering::Relaxed);
                     stats
                         .connection_added_from_unstaked_peer
                         .fetch_add(1, Ordering::Relaxed);
@@ -1130,6 +1167,7 @@ impl ConnectionTable {
         &mut self,
         sample_size: usize,
         new_connection_handler_param: &NewConnectionHandlerParams,
+        name: &'static str,
     ) -> usize {
         let num_pruned = std::iter::once(self.table.len())
             .filter(|&size| size > 0)
@@ -1148,7 +1186,7 @@ impl ConnectionTable {
             .and_then(|(index, _)| {
                 if let Some((k, v)) = self.table.swap_remove_index(index) {
                     log::warn!(
-                        "QUIC METRICS: Pruned {} with {} connections for {} with {} stakes",
+                        "QUIC METRICS {name:?}: Pruned {} with {} connections for {} with {} stakes",
                         k.to_string(),
                         v.len(),
                         new_connection_handler_param
