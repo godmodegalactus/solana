@@ -260,6 +260,7 @@ fn prune_unstaked_connection_table(
     unstaked_connection_table: &mut ConnectionTable,
     max_unstaked_connections: usize,
     stats: Arc<StreamStats>,
+    connection_counters: ConnectionCounters,
 ) {
     if unstaked_connection_table.total_size >= max_unstaked_connections {
         const PRUNE_TABLE_TO_PERCENTAGE: u8 = 90;
@@ -268,6 +269,9 @@ fn prune_unstaked_connection_table(
         let max_connections = max_percentage_full.apply_to(max_unstaked_connections);
         let num_pruned = unstaked_connection_table.prune_oldest(max_connections);
         stats.num_evictions.fetch_add(num_pruned, Ordering::Relaxed);
+        connection_counters
+            .number_of_pruned_unstaked
+            .fetch_add(num_pruned as u64, Ordering::Relaxed);
     }
 }
 
@@ -460,12 +464,18 @@ fn prune_unstaked_connections_and_add_new_connection(
     max_connections: usize,
     params: &NewConnectionHandlerParams,
     wait_for_chunk_timeout: Duration,
+    connection_counters: ConnectionCounters,
 ) -> Result<(), ConnectionHandlerError> {
     let stats = params.stats.clone();
     if max_connections > 0 {
         let connection_table_clone = connection_table.clone();
         let mut connection_table = connection_table.lock().unwrap();
-        prune_unstaked_connection_table(&mut connection_table, max_connections, stats);
+        prune_unstaked_connection_table(
+            &mut connection_table,
+            max_connections,
+            stats,
+            connection_counters,
+        );
         handle_and_cache_new_connection(
             connection,
             connection_table,
@@ -615,10 +625,8 @@ async fn setup_connection(
                             max_unstaked_connections,
                             &params,
                             wait_for_chunk_timeout,
+                            connection_counters.clone(),
                         ) {
-                            connection_counters
-                                .number_of_pruned_unstaked
-                                .fetch_add(1, Ordering::Relaxed);
                             connection_counters
                                 .number_of_staked_fell_through_unstaked
                                 .fetch_add(1, Ordering::Relaxed);
@@ -643,10 +651,8 @@ async fn setup_connection(
                     max_unstaked_connections,
                     &params,
                     wait_for_chunk_timeout,
+                    connection_counters.clone(),
                 ) {
-                    connection_counters
-                        .number_of_pruned_unstaked
-                        .fetch_add(1, Ordering::Relaxed);
                     stats
                         .connection_added_from_unstaked_peer
                         .fetch_add(1, Ordering::Relaxed);
