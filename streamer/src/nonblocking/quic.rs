@@ -151,6 +151,15 @@ struct ConnectionCounters {
     number_of_staked_failed_to_connect: Arc<AtomicU64>,
     number_of_unstaked_failed_to_connect: Arc<AtomicU64>,
     number_of_connection_timedout: Arc<AtomicU64>,
+
+    unistream_connection_requested_by_staked: Arc<AtomicU64>,
+    unistream_connection_requested_by_unstaked: Arc<AtomicU64>,
+    unistream_connection_chunks_by_staked: Arc<AtomicU64>,
+    unistream_connection_chunks_by_unstaked: Arc<AtomicU64>,
+    unistream_connection_staked_errored: Arc<AtomicU64>,
+    unistream_connection_unstaked_errored: Arc<AtomicU64>,
+    unistream_connection_staked_timedout: Arc<AtomicU64>,
+    unistream_connection_unstaked_timedout: Arc<AtomicU64>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -231,8 +240,36 @@ async fn run_server(
                 let number_of_unstaked_failed_to_connect = connection_counters
                     .number_of_unstaked_failed_to_connect
                     .swap(0, Ordering::Relaxed);
-                let number_of_connection_timedout = connection_counters.number_of_connection_timedout.swap(0, Ordering::Relaxed);
+                let number_of_connection_timedout = connection_counters
+                    .number_of_connection_timedout
+                    .swap(0, Ordering::Relaxed);
                 log::warn!("QUIC METRICS {name:?}: New connection requested {total:?} with {staked:?} staked and {} unstaked nodes, pruned_stake: {number_of_pruned_staked:?}, pruned unstaked :{number_of_pruned_unstaked:?}, number_of_staked_fell_through_unstaked:{number_of_staked_fell_through_unstaked}, number_of_staked_failed_to_prune_unstaked:{number_of_staked_failed_to_prune_unstaked:?}, number_of_staked_failed_to_connect: {number_of_staked_failed_to_connect:?}, number_of_unstaked_failed_to_connect: {number_of_unstaked_failed_to_connect:?}, number_of_connection_timedout: {number_of_connection_timedout:?}",total-staked );
+
+                let unistream_connection_requested_by_staked = connection_counters
+                    .unistream_connection_requested_by_staked
+                    .swap(0, Ordering::Relaxed);
+                let unistream_connection_requested_by_unstaked = connection_counters
+                    .unistream_connection_requested_by_unstaked
+                    .swap(0, Ordering::Relaxed);
+                let unistream_connection_staked_errored = connection_counters
+                    .unistream_connection_staked_errored
+                    .swap(0, Ordering::Relaxed);
+                let unistream_connection_unstaked_errored = connection_counters
+                    .unistream_connection_unstaked_errored
+                    .swap(0, Ordering::Relaxed);
+                let unistream_connection_staked_timedout = connection_counters
+                    .unistream_connection_staked_timedout
+                    .swap(0, Ordering::Relaxed);
+                let unistream_connection_unstaked_timedout = connection_counters
+                    .unistream_connection_unstaked_timedout
+                    .swap(0, Ordering::Relaxed);
+                let unistream_connection_chunks_by_staked = connection_counters
+                    .unistream_connection_staked_timedout
+                    .swap(0, Ordering::Relaxed);
+                let unistream_connection_chunks_by_unstaked = connection_counters
+                    .unistream_connection_unstaked_timedout
+                    .swap(0, Ordering::Relaxed);
+                log::warn!("QUIC METRICS {name:?}: Unistream requested unistream_connection_requested_by_staked : {unistream_connection_requested_by_staked:?}, unistream_connection_requested_by_unstaked: {unistream_connection_requested_by_unstaked:?}, unistream_connection_staked_errored: {unistream_connection_staked_errored:?}, unistream_connection_unstaked_errored: {unistream_connection_unstaked_errored:?}, unistream_connection_staked_timedout: {unistream_connection_staked_timedout:?}, unistream_connection_unstaked_timedout:{unistream_connection_unstaked_timedout:?}, unistream_connection_chunks_by_staked: {unistream_connection_chunks_by_staked:?}, unistream_connection_chunks_by_unstaked: {unistream_connection_chunks_by_unstaked:?}" );
             }
         });
     }
@@ -405,6 +442,8 @@ fn handle_and_cache_new_connection(
     connection_table: Arc<Mutex<ConnectionTable>>,
     params: &NewConnectionHandlerParams,
     wait_for_chunk_timeout: Duration,
+    connection_counters: ConnectionCounters,
+    staked: bool,
 ) -> Result<(), ConnectionHandlerError> {
     if let Ok(max_uni_streams) = VarInt::from_u64(compute_max_allowed_uni_streams(
         connection_table_l.peer_type,
@@ -455,6 +494,8 @@ fn handle_and_cache_new_connection(
                 params.clone(),
                 peer_type,
                 wait_for_chunk_timeout,
+                connection_counters,
+                staked,
             ));
             Ok(())
         } else {
@@ -493,7 +534,7 @@ async fn prune_unstaked_connections_and_add_new_connection(
             &mut connection_table,
             max_connections,
             stats,
-            connection_counters,
+            connection_counters.clone(),
         );
         handle_and_cache_new_connection(
             connection,
@@ -501,6 +542,8 @@ async fn prune_unstaked_connections_and_add_new_connection(
             connection_table_clone,
             params,
             wait_for_chunk_timeout,
+            connection_counters,
+            false,
         )
     } else {
         connection.close(
@@ -629,6 +672,8 @@ async fn setup_connection(
                             staked_connection_table.clone(),
                             &params,
                             wait_for_chunk_timeout,
+                            connection_counters.clone(),
+                            true,
                         ) {
                             stats
                                 .connection_added_from_staked_peer
@@ -666,7 +711,7 @@ async fn setup_connection(
                             stats
                                 .connection_add_failed_on_pruning
                                 .fetch_add(1, Ordering::Relaxed);
-                            
+
                             stats
                                 .connection_add_failed_staked_node
                                 .fetch_add(1, Ordering::Relaxed);
@@ -686,7 +731,9 @@ async fn setup_connection(
                         .connection_added_from_unstaked_peer
                         .fetch_add(1, Ordering::Relaxed);
                 } else {
-                    connection_counters.number_of_unstaked_failed_to_connect.fetch_add(1, Ordering::Relaxed);
+                    connection_counters
+                        .number_of_unstaked_failed_to_connect
+                        .fetch_add(1, Ordering::Relaxed);
                     stats
                         .connection_add_failed_unstaked_node
                         .fetch_add(1, Ordering::Relaxed);
@@ -697,7 +744,9 @@ async fn setup_connection(
             }
         }
     } else {
-        connection_counters.number_of_connection_timedout.fetch_add(1, Ordering::Relaxed);
+        connection_counters
+            .number_of_connection_timedout
+            .fetch_add(1, Ordering::Relaxed);
         stats
             .connection_setup_timeout
             .fetch_add(1, Ordering::Relaxed);
@@ -862,6 +911,8 @@ async fn handle_connection(
     params: NewConnectionHandlerParams,
     peer_type: ConnectionPeerType,
     wait_for_chunk_timeout: Duration,
+    connection_counters: ConnectionCounters,
+    staked: bool,
 ) {
     let stats = params.stats;
     debug!(
@@ -880,6 +931,16 @@ async fn handle_connection(
         if let Ok(stream) =
             tokio::time::timeout(WAIT_FOR_STREAM_TIMEOUT, connection.accept_uni()).await
         {
+            if staked {
+                connection_counters
+                    .unistream_connection_requested_by_staked
+                    .fetch_add(1, Ordering::Relaxed);
+            } else {
+                connection_counters
+                    .unistream_connection_requested_by_unstaked
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+
             match stream {
                 Ok(mut stream) => {
                     if reset_throttling_params_if_needed(&mut last_throttling_instant) {
@@ -896,6 +957,7 @@ async fn handle_connection(
                     let stats = stats.clone();
                     let packet_sender = params.packet_sender.clone();
                     let last_update = last_update.clone();
+                    let connection_counters = connection_counters.clone();
                     tokio::spawn(async move {
                         let mut maybe_batch = None;
                         // The min is to guard against a value too small which can wake up unnecessarily
@@ -913,6 +975,16 @@ async fn handle_connection(
                             )
                             .await
                             {
+                                if staked {
+                                    connection_counters
+                                        .unistream_connection_chunks_by_staked
+                                        .fetch_add(1, Ordering::Relaxed);
+                                } else {
+                                    connection_counters
+                                        .unistream_connection_chunks_by_unstaked
+                                        .fetch_add(1, Ordering::Relaxed);
+                                }
+
                                 if handle_chunk(
                                     chunk,
                                     &mut maybe_batch,
@@ -928,6 +1000,16 @@ async fn handle_connection(
                                 }
                                 start = Instant::now();
                             } else if start.elapsed() > wait_for_chunk_timeout {
+                                if staked {
+                                    connection_counters
+                                        .unistream_connection_staked_timedout
+                                        .fetch_add(1, Ordering::Relaxed);
+                                } else {
+                                    connection_counters
+                                        .unistream_connection_unstaked_timedout
+                                        .fetch_add(1, Ordering::Relaxed);
+                                }
+
                                 debug!("Timeout in receiving on stream");
                                 stats
                                     .total_stream_read_timeouts
@@ -939,6 +1021,16 @@ async fn handle_connection(
                     });
                 }
                 Err(e) => {
+                    if staked {
+                        connection_counters
+                            .unistream_connection_staked_errored
+                            .fetch_add(1, Ordering::Relaxed);
+                    } else {
+                        connection_counters
+                            .unistream_connection_unstaked_errored
+                            .fetch_add(1, Ordering::Relaxed);
+                    }
+
                     debug!("stream error: {:?}", e);
                     break;
                 }
