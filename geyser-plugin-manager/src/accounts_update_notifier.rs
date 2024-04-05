@@ -67,36 +67,7 @@ impl AccountsUpdateNotifierInterface for AccountsUpdateNotifierImpl {
         );
     }
 
-    fn notify_end_of_restore_from_snapshot(&self) {
-        let plugin_manager = self.plugin_manager.read().unwrap();
-        if plugin_manager.plugins.is_empty() {
-            return;
-        }
-
-        for plugin in plugin_manager.plugins.iter() {
-            let mut measure = Measure::start("geyser-plugin-end-of-restore-from-snapshot");
-            match plugin.notify_end_of_startup() {
-                Err(err) => {
-                    error!(
-                        "Failed to notify the end of restore from snapshot, error: {} to plugin {}",
-                        err,
-                        plugin.name()
-                    )
-                }
-                Ok(_) => {
-                    trace!(
-                        "Successfully notified the end of restore from snapshot to plugin {}",
-                        plugin.name()
-                    );
-                }
-            }
-            measure.stop();
-            inc_new_counter_debug!(
-                "geyser-plugin-end-of-restore-from-snapshot",
-                measure.as_us() as usize
-            );
-        }
-    }
+    fn notify_end_of_restore_from_snapshot(&self) {}
 }
 
 impl AccountsUpdateNotifierImpl {

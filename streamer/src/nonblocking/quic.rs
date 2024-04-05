@@ -200,8 +200,8 @@ async fn run_server(
                         log::warn!(
                             "QUIC METRICS {name:?}: peer : {} with stakes {} has : {} connections",
                             peer.to_string(),
+                            data.get(0).map(|x| x.stake).unwrap_or_default(),
                             data.len(),
-                            data.get(0).map(|x| x.stake).unwrap_or_default()
                         );
                     }
                 }
@@ -264,10 +264,10 @@ async fn run_server(
                     .unistream_connection_unstaked_timedout
                     .swap(0, Ordering::Relaxed);
                 let unistream_connection_chunks_by_staked = connection_counters
-                    .unistream_connection_staked_timedout
+                    .unistream_connection_chunks_by_staked
                     .swap(0, Ordering::Relaxed);
                 let unistream_connection_chunks_by_unstaked = connection_counters
-                    .unistream_connection_unstaked_timedout
+                    .unistream_connection_chunks_by_unstaked
                     .swap(0, Ordering::Relaxed);
                 log::warn!("QUIC METRICS {name:?}: Unistream requested unistream_connection_requested_by_staked : {unistream_connection_requested_by_staked:?}, unistream_connection_requested_by_unstaked: {unistream_connection_requested_by_unstaked:?}, unistream_connection_staked_errored: {unistream_connection_staked_errored:?}, unistream_connection_unstaked_errored: {unistream_connection_unstaked_errored:?}, unistream_connection_staked_timedout: {unistream_connection_staked_timedout:?}, unistream_connection_unstaked_timedout:{unistream_connection_unstaked_timedout:?}, unistream_connection_chunks_by_staked: {unistream_connection_chunks_by_staked:?}, unistream_connection_chunks_by_unstaked: {unistream_connection_chunks_by_unstaked:?}" );
             }
