@@ -36,6 +36,7 @@ use {
         feature_set,
         genesis_config::{ClusterType, GenesisConfig},
         message::Message,
+        packet::TLSSupport,
         poh_config::PohConfig,
         pubkey::Pubkey,
         signature::{Keypair, Signer},
@@ -325,6 +326,7 @@ impl LocalCluster {
                 true => Arc::new(ConnectionCache::new_quic(
                     "connection_cache_local_cluster_quic",
                     config.tpu_connection_pool_size,
+                    TLSSupport::default(),
                 )),
                 false => Arc::new(ConnectionCache::with_udp(
                     "connection_cache_local_cluster_udp",

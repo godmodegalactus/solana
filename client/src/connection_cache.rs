@@ -10,7 +10,7 @@ use {
     },
     solana_quic_client::{QuicConfig, QuicConnectionManager, QuicPool},
     solana_sdk::{
-        pubkey::Pubkey, quic::NotifyKeyUpdate, signature::Keypair,
+        packet::TLSSupport, pubkey::Pubkey, quic::NotifyKeyUpdate, signature::Keypair,
         transport::Result as TransportResult,
     },
     solana_streamer::streamer::StakedNodes,
@@ -56,7 +56,7 @@ impl NotifyKeyUpdate for ConnectionCache {
 }
 
 impl ConnectionCache {
-    pub fn new(name: &'static str) -> Self {
+    pub fn new(name: &'static str, tls_support: TLSSupport) -> Self {
         if DEFAULT_CONNECTION_CACHE_USE_QUIC {
             let cert_info = (&Keypair::new(), IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)));
             ConnectionCache::new_with_client_options(
@@ -65,6 +65,7 @@ impl ConnectionCache {
                 None, // client_endpoint
                 Some(cert_info),
                 None, // stake_info
+                tls_support,
             )
         } else {
             ConnectionCache::with_udp(name, DEFAULT_CONNECTION_POOL_SIZE)
@@ -72,8 +73,12 @@ impl ConnectionCache {
     }
 
     /// Create a quic connection_cache
-    pub fn new_quic(name: &'static str, connection_pool_size: usize) -> Self {
-        Self::new_with_client_options(name, connection_pool_size, None, None, None)
+    pub fn new_quic(
+        name: &'static str,
+        connection_pool_size: usize,
+        tls_support: TLSSupport,
+    ) -> Self {
+        Self::new_with_client_options(name, connection_pool_size, None, None, None, tls_support)
     }
 
     /// Create a quic connection_cache with more client options
@@ -83,6 +88,7 @@ impl ConnectionCache {
         client_endpoint: Option<Endpoint>,
         cert_info: Option<(&Keypair, IpAddr)>,
         stake_info: Option<(&Arc<RwLock<StakedNodes>>, &Pubkey)>,
+        tls_support: TLSSupport,
     ) -> Self {
         // The minimum pool size is 1.
         let connection_pool_size = 1.max(connection_pool_size);
@@ -97,8 +103,13 @@ impl ConnectionCache {
             config.set_staked_nodes(stake_info.0, stake_info.1);
         }
         let connection_manager = QuicConnectionManager::new_with_connection_config(config);
-        let cache =
-            BackendConnectionCache::new(name, connection_manager, connection_pool_size).unwrap();
+        let cache = BackendConnectionCache::new(
+            name,
+            connection_manager,
+            connection_pool_size,
+            tls_support,
+        )
+        .unwrap();
         Self::Quic(Arc::new(cache))
     }
 
@@ -137,8 +148,13 @@ impl ConnectionCache {
         // The minimum pool size is 1.
         let connection_pool_size = 1.max(connection_pool_size);
         let connection_manager = UdpConnectionManager::default();
-        let cache =
-            BackendConnectionCache::new(name, connection_manager, connection_pool_size).unwrap();
+        let cache = BackendConnectionCache::new(
+            name,
+            connection_manager,
+            connection_pool_size,
+            TLSSupport::default(),
+        )
+        .unwrap();
         Self::Udp(Arc::new(cache))
     }
 
@@ -272,6 +288,7 @@ mod tests {
             10,
             DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
             DEFAULT_TPU_COALESCE,
+            TLSSupport::default(),
         )
         .unwrap();
 
@@ -281,6 +298,7 @@ mod tests {
             Some(response_recv_endpoint), // client_endpoint
             None,                         // cert_info
             None,                         // stake_info
+            TLSSupport::default(),
         );
 
         // server port 1:

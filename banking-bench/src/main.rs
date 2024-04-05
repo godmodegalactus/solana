@@ -28,6 +28,7 @@ use {
         compute_budget::ComputeBudgetInstruction,
         hash::Hash,
         message::Message,
+        packet::TLSSupport,
         pubkey::{self, Pubkey},
         signature::{Keypair, Signature, Signer},
         system_instruction, system_transaction,
@@ -454,6 +455,7 @@ fn main() {
         false => ConnectionCache::new_quic(
             "connection_cache_banking_bench_quic",
             DEFAULT_TPU_CONNECTION_POOL_SIZE,
+            TLSSupport::default(),
         ),
         true => ConnectionCache::with_udp(
             "connection_cache_banking_bench_udp",

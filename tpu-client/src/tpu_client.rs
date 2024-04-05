@@ -6,7 +6,10 @@ use {
         ConnectionCache, ConnectionManager, ConnectionPool, NewConnectionConfig,
     },
     solana_rpc_client::rpc_client::RpcClient,
-    solana_sdk::{clock::Slot, transaction::Transaction, transport::Result as TransportResult},
+    solana_sdk::{
+        clock::Slot, packet::TLSSupport, transaction::Transaction,
+        transport::Result as TransportResult,
+    },
     std::{
         collections::VecDeque,
         net::UdpSocket,
@@ -44,12 +47,14 @@ pub struct TpuClientConfig {
     /// The range of upcoming slots to include when determining which
     /// leaders to send transactions to (min: 1, max: `MAX_FANOUT_SLOTS`)
     pub fanout_slots: u64,
+    pub tls_support: TLSSupport,
 }
 
 impl Default for TpuClientConfig {
     fn default() -> Self {
         Self {
             fanout_slots: DEFAULT_FANOUT_SLOTS,
+            tls_support: TLSSupport::default(),
         }
     }
 }

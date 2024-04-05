@@ -85,7 +85,7 @@ impl TpuClient<QuicPool, QuicConnectionManager, QuicConfig> {
         websocket_url: &str,
         config: TpuClientConfig,
     ) -> Result<Self> {
-        let connection_cache = match ConnectionCache::new(name) {
+        let connection_cache = match ConnectionCache::new(name, config.tls_support) {
             ConnectionCache::Quic(cache) => cache,
             ConnectionCache::Udp(_) => {
                 return Err(TpuSenderError::Custom(String::from(

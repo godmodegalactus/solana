@@ -41,6 +41,7 @@ use {
             LoaderV4Status::{self, Retracted},
         },
         message::Message,
+        packet::TLSSupport,
         pubkey::Pubkey,
         signature::Signer,
         system_instruction::{self, SystemError},
@@ -876,7 +877,11 @@ fn send_messages(
     if !write_messages.is_empty() {
         trace!("Writing program data");
         let connection_cache = if config.use_quic {
-            ConnectionCache::new_quic("connection_cache_cli_program_v4_quic", 1)
+            ConnectionCache::new_quic(
+                "connection_cache_cli_program_v4_quic",
+                1,
+                TLSSupport::default(),
+            )
         } else {
             ConnectionCache::with_udp("connection_cache_cli_program_v4_udp", 1)
         };

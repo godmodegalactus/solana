@@ -9,7 +9,7 @@ use {
     rustls::{server::ClientCertVerified, Certificate, DistinguishedName},
     solana_perf::packet::PacketBatch,
     solana_sdk::{
-        packet::PACKET_DATA_SIZE,
+        packet::{TLSSupport, PACKET_DATA_SIZE},
         quic::{NotifyKeyUpdate, QUIC_MAX_TIMEOUT, QUIC_MAX_UNSTAKED_CONCURRENT_STREAMS},
         signature::Keypair,
     },
@@ -61,6 +61,7 @@ impl rustls::server::ClientCertVerifier for SkipClientVerification {
 #[allow(clippy::field_reassign_with_default)] // https://github.com/rust-lang/rust-clippy/issues/6527
 pub(crate) fn configure_server(
     identity_keypair: &Keypair,
+    tls_support: TLSSupport,
 ) -> Result<(ServerConfig, String), QuicServerError> {
     let (cert, priv_key) = new_dummy_x509_certificate(identity_keypair);
     let cert_chain_pem_parts = vec![Pem {
@@ -69,13 +70,18 @@ pub(crate) fn configure_server(
     }];
     let cert_chain_pem = pem::encode_many(&cert_chain_pem_parts);
 
-    let mut server_tls_config = rustls::ServerConfig::builder()
-        .with_safe_defaults()
-        .with_client_cert_verifier(SkipClientVerification::new())
-        .with_single_cert(vec![cert], priv_key)?;
-    server_tls_config.alpn_protocols = vec![ALPN_TPU_PROTOCOL_ID.to_vec()];
+    let mut server_config = match tls_support {
+        TLSSupport::Enable => {
+            let mut server_tls_config = rustls::ServerConfig::builder()
+                .with_safe_defaults()
+                .with_client_cert_verifier(SkipClientVerification::new())
+                .with_single_cert(vec![cert], priv_key)?;
+            server_tls_config.alpn_protocols = vec![ALPN_TPU_PROTOCOL_ID.to_vec()];
 
-    let mut server_config = ServerConfig::with_crypto(Arc::new(server_tls_config));
+            ServerConfig::with_crypto(Arc::new(server_tls_config))
+        }
+        TLSSupport::SingleCert => ServerConfig::with_single_cert(vec![cert], priv_key)?,
+    };
     server_config.use_retry(true);
     let config = Arc::get_mut(&mut server_config.transport).unwrap();
 
@@ -122,7 +128,7 @@ pub struct EndpointKeyUpdater {
 
 impl NotifyKeyUpdate for EndpointKeyUpdater {
     fn update_key(&self, key: &Keypair) -> Result<(), Box<dyn std::error::Error>> {
-        let (config, _) = configure_server(key)?;
+        let (config, _) = configure_server(key, TLSSupport::default())?;
         self.endpoint.set_server_config(Some(config));
         Ok(())
     }
@@ -443,6 +449,7 @@ pub fn spawn_server(
     max_unstaked_connections: usize,
     wait_for_chunk_timeout: Duration,
     coalesce: Duration,
+    tls_support: TLSSupport,
 ) -> Result<SpawnServerResult, QuicServerError> {
     let runtime = rt(format!("{thread_name}Rt"));
     let (endpoint, _stats, task) = {
@@ -459,6 +466,7 @@ pub fn spawn_server(
             max_unstaked_connections,
             wait_for_chunk_timeout,
             coalesce,
+            tls_support,
         )
     }?;
     let handle = thread::Builder::new()
@@ -518,6 +526,7 @@ mod test {
             MAX_UNSTAKED_CONNECTIONS,
             DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
             DEFAULT_TPU_COALESCE,
+            TLSSupport::default(),
         )
         .unwrap();
         (t, exit, receiver, server_address)
@@ -577,6 +586,7 @@ mod test {
             MAX_UNSTAKED_CONNECTIONS,
             DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
             DEFAULT_TPU_COALESCE,
+            TLSSupport::default(),
         )
         .unwrap();
 
@@ -623,6 +633,7 @@ mod test {
             0, // Do not allow any connection from unstaked clients/nodes
             DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
             DEFAULT_TPU_COALESCE,
+            TLSSupport::default(),
         )
         .unwrap();
 

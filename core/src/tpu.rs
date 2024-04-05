@@ -31,7 +31,9 @@ use {
         rpc_subscriptions::RpcSubscriptions,
     },
     solana_runtime::{bank_forks::BankForks, prioritization_fee_cache::PrioritizationFeeCache},
-    solana_sdk::{clock::Slot, pubkey::Pubkey, quic::NotifyKeyUpdate, signature::Keypair},
+    solana_sdk::{
+        clock::Slot, packet::TLSSupport, pubkey::Pubkey, quic::NotifyKeyUpdate, signature::Keypair,
+    },
     solana_streamer::{
         nonblocking::quic::DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
         quic::{spawn_server, SpawnServerResult, MAX_STAKED_CONNECTIONS, MAX_UNSTAKED_CONNECTIONS},
@@ -165,6 +167,7 @@ impl Tpu {
             MAX_UNSTAKED_CONNECTIONS,
             DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
             tpu_coalesce,
+            TLSSupport::default(),
         )
         .unwrap();
 
@@ -185,6 +188,7 @@ impl Tpu {
             0, // Prevent unstaked nodes from forwarding transactions
             DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
             tpu_coalesce,
+            TLSSupport::default(),
         )
         .unwrap();
 

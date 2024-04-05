@@ -19,7 +19,7 @@ use {
     rand::{thread_rng, Rng},
     solana_perf::packet::{PacketBatch, PACKETS_PER_BATCH},
     solana_sdk::{
-        packet::{Meta, PACKET_DATA_SIZE},
+        packet::{Meta, TLSSupport, PACKET_DATA_SIZE},
         pubkey::Pubkey,
         quic::{
             QUIC_CONNECTION_HANDSHAKE_TIMEOUT, QUIC_MAX_STAKED_CONCURRENT_STREAMS,
@@ -121,9 +121,10 @@ pub fn spawn_server(
     max_unstaked_connections: usize,
     wait_for_chunk_timeout: Duration,
     coalesce: Duration,
+    tls_support: TLSSupport,
 ) -> Result<(Endpoint, Arc<StreamStats>, JoinHandle<()>), QuicServerError> {
     info!("Start {name} quic server on {sock:?}");
-    let (config, _cert) = configure_server(keypair)?;
+    let (config, _cert) = configure_server(keypair, tls_support)?;
 
     let endpoint = Endpoint::new(
         EndpointConfig::default(),
@@ -1251,6 +1252,7 @@ pub mod test {
             MAX_UNSTAKED_CONNECTIONS,
             Duration::from_secs(2),
             DEFAULT_TPU_COALESCE,
+            TLSSupport::default(),
         )
         .unwrap();
         (t, exit, receiver, server_address, stats)
@@ -1685,6 +1687,7 @@ pub mod test {
             0, // Do not allow any connection from unstaked clients/nodes
             DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
             DEFAULT_TPU_COALESCE,
+            TLSSupport::default(),
         )
         .unwrap();
 
@@ -1714,6 +1717,7 @@ pub mod test {
             MAX_UNSTAKED_CONNECTIONS,
             DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
             DEFAULT_TPU_COALESCE,
+            TLSSupport::default(),
         )
         .unwrap();
 

@@ -19,6 +19,7 @@ use {
     solana_net_utils::VALIDATOR_PORT_RANGE,
     solana_rpc_client_api::client_error::ErrorKind as ClientErrorKind,
     solana_sdk::{
+        packet::TLSSupport,
         quic::{
             QUIC_CONNECTION_HANDSHAKE_TIMEOUT, QUIC_KEEP_ALIVE, QUIC_MAX_TIMEOUT,
             QUIC_MAX_UNSTAKED_CONCURRENT_STREAMS,
@@ -100,7 +101,7 @@ impl QuicLazyInitializedEndpoint {
         }
     }
 
-    fn create_endpoint(&self) -> Endpoint {
+    fn create_endpoint(&self, tls_support: TLSSupport) -> Endpoint {
         let mut endpoint = if let Some(endpoint) = &self.client_endpoint {
             endpoint.clone()
         } else {
@@ -114,18 +115,29 @@ impl QuicLazyInitializedEndpoint {
             QuicNewConnection::create_endpoint(EndpointConfig::default(), client_socket)
         };
 
-        let mut crypto = rustls::ClientConfig::builder()
-            .with_safe_defaults()
-            .with_custom_certificate_verifier(SkipServerVerification::new())
-            .with_client_auth_cert(
-                vec![self.client_certificate.certificate.clone()],
-                self.client_certificate.key.clone(),
-            )
-            .expect("Failed to set QUIC client certificates");
-        crypto.enable_early_data = true;
-        crypto.alpn_protocols = vec![ALPN_TPU_PROTOCOL_ID.to_vec()];
-
-        let mut config = ClientConfig::new(Arc::new(crypto));
+        let mut config = match tls_support {
+            TLSSupport::Enable => {
+                let mut crypto = rustls::ClientConfig::builder()
+                    .with_safe_defaults()
+                    .with_custom_certificate_verifier(SkipServerVerification::new())
+                    .with_client_auth_cert(
+                        vec![self.client_certificate.certificate.clone()],
+                        self.client_certificate.key.clone(),
+                    )
+                    .expect("Failed to set QUIC client certificates");
+                crypto.enable_early_data = true;
+                crypto.alpn_protocols = vec![ALPN_TPU_PROTOCOL_ID.to_vec()];
+                ClientConfig::new(Arc::new(crypto))
+            }
+            TLSSupport::SingleCert => {
+                let mut no_crypto = rustls::ClientConfig::builder()
+                    .with_safe_defaults()
+                    .with_custom_certificate_verifier(SkipServerVerification::new())
+                    .with_no_client_auth();
+                no_crypto.enable_early_data = true;
+                ClientConfig::new(Arc::new(no_crypto))
+            }
+        };
         let mut transport_config = TransportConfig::default();
 
         let timeout = IdleTimeout::try_from(QUIC_MAX_TIMEOUT).unwrap();
@@ -138,9 +150,9 @@ impl QuicLazyInitializedEndpoint {
         endpoint
     }
 
-    async fn get_endpoint(&self) -> Arc<Endpoint> {
+    async fn get_endpoint(&self, tls_support: TLSSupport) -> Arc<Endpoint> {
         self.endpoint
-            .get_or_init(|| async { Arc::new(self.create_endpoint()) })
+            .get_or_init(|| async { Arc::new(self.create_endpoint(tls_support)) })
             .await
             .clone()
     }
@@ -173,9 +185,10 @@ impl QuicNewConnection {
         endpoint: Arc<QuicLazyInitializedEndpoint>,
         addr: SocketAddr,
         stats: &ClientStats,
+        tls_support: TLSSupport,
     ) -> Result<Self, QuicError> {
         let mut make_connection_measure = Measure::start("make_connection_measure");
-        let endpoint = endpoint.get_endpoint().await;
+        let endpoint = endpoint.get_endpoint(tls_support).await;
 
         let connecting = endpoint.connect(addr, "connect")?;
         stats.total_connections.fetch_add(1, Ordering::Relaxed);
@@ -250,6 +263,7 @@ pub struct QuicClient {
     addr: SocketAddr,
     stats: Arc<ClientStats>,
     chunk_size: usize,
+    tls_support: TLSSupport,
 }
 
 impl QuicClient {
@@ -257,6 +271,7 @@ impl QuicClient {
         endpoint: Arc<QuicLazyInitializedEndpoint>,
         addr: SocketAddr,
         chunk_size: usize,
+        tls_support: TLSSupport,
     ) -> Self {
         Self {
             endpoint,
@@ -264,6 +279,7 @@ impl QuicClient {
             addr,
             stats: Arc::new(ClientStats::default()),
             chunk_size,
+            tls_support,
         }
     }
 
@@ -332,6 +348,7 @@ impl QuicClient {
                             self.endpoint.clone(),
                             self.addr,
                             stats,
+                            self.tls_support,
                         )
                         .await;
                         match conn {
@@ -539,11 +556,13 @@ impl QuicClientConnection {
         endpoint: Arc<QuicLazyInitializedEndpoint>,
         addr: SocketAddr,
         connection_stats: Arc<ConnectionCacheStats>,
+        tls_support: TLSSupport,
     ) -> Self {
         let client = Arc::new(QuicClient::new(
             endpoint,
             addr,
             QUIC_MAX_UNSTAKED_CONCURRENT_STREAMS,
+            tls_support,
         ));
         Self::new_with_client(client, connection_stats)
     }

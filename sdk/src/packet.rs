@@ -20,6 +20,13 @@ static_assertions::const_assert_eq!(PACKET_DATA_SIZE, 1232);
 ///   8 bytes is the size of the fragment header
 pub const PACKET_DATA_SIZE: usize = 1280 - 40 - 8;
 
+#[derive(Copy, Clone, Default, Debug, Eq, PartialEq)]
+pub enum TLSSupport {
+    #[default]
+    Enable,
+    SingleCert,
+}
+
 bitflags! {
     #[repr(C)]
     #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

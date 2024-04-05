@@ -12,7 +12,10 @@ use {
         connection_cache_stats::ConnectionCacheStats,
         nonblocking::client_connection::ClientConnection as NonblockingClientConnection,
     },
-    solana_sdk::transport::{Result as TransportResult, TransportError},
+    solana_sdk::{
+        packet::TLSSupport,
+        transport::{Result as TransportResult, TransportError},
+    },
     std::{
         net::SocketAddr,
         sync::{atomic::Ordering, Arc, Condvar, Mutex, MutexGuard},
@@ -126,11 +129,13 @@ impl QuicClientConnection {
         endpoint: Arc<QuicLazyInitializedEndpoint>,
         server_addr: SocketAddr,
         connection_stats: Arc<ConnectionCacheStats>,
+        tls_support: TLSSupport,
     ) -> Self {
         let inner = Arc::new(NonblockingQuicConnection::new(
             endpoint,
             server_addr,
             connection_stats,
+            tls_support,
         ));
         Self { inner }
     }

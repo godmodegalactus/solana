@@ -23,6 +23,7 @@ use {
         connection_cache_stats::ConnectionCacheStats,
     },
     solana_sdk::{
+        packet::TLSSupport,
         pubkey::Pubkey,
         signature::{Keypair, Signer},
     },
@@ -45,8 +46,13 @@ impl ConnectionPool for QuicPool {
     type BaseClientConnection = Quic;
     type NewConnectionConfig = QuicConfig;
 
-    fn add_connection(&mut self, config: &Self::NewConnectionConfig, addr: &SocketAddr) -> usize {
-        let connection = self.create_pool_entry(config, addr);
+    fn add_connection(
+        &mut self,
+        config: &Self::NewConnectionConfig,
+        addr: &SocketAddr,
+        tls_support: TLSSupport,
+    ) -> usize {
+        let connection = self.create_pool_entry(config, addr, tls_support);
         let idx = self.connections.len();
         self.connections.push(connection);
         idx
@@ -67,11 +73,13 @@ impl ConnectionPool for QuicPool {
         &self,
         config: &Self::NewConnectionConfig,
         addr: &SocketAddr,
+        tls_support: TLSSupport,
     ) -> Arc<Self::BaseClientConnection> {
         Arc::new(Quic(Arc::new(QuicClient::new(
             self.endpoint.clone(),
             *addr,
             config.compute_max_parallel_streams(),
+            tls_support,
         ))))
     }
 }
@@ -243,12 +251,13 @@ pub fn new_quic_connection_cache(
     ipaddr: IpAddr,
     staked_nodes: &Arc<RwLock<StakedNodes>>,
     connection_pool_size: usize,
+    tls_support: TLSSupport,
 ) -> Result<QuicConnectionCache, ClientError> {
     let mut config = QuicConfig::new()?;
     config.update_client_certificate(keypair, ipaddr);
     config.set_staked_nodes(staked_nodes, &keypair.pubkey());
     let connection_manager = QuicConnectionManager::new_with_connection_config(config);
-    ConnectionCache::new(name, connection_manager, connection_pool_size)
+    ConnectionCache::new(name, connection_manager, connection_pool_size, tls_support)
 }
 
 #[cfg(test)]

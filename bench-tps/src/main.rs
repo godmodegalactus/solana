@@ -14,6 +14,7 @@ use {
     solana_sdk::{
         commitment_config::CommitmentConfig,
         fee_calculator::FeeRateGovernor,
+        packet::TLSSupport,
         pubkey::Pubkey,
         signature::{Keypair, Signer},
         system_program,
@@ -88,6 +89,7 @@ fn create_connection_cache(
         return ConnectionCache::new_quic(
             "bench-tps-connection_cache_quic",
             tpu_connection_pool_size,
+            TLSSupport::default(),
         );
     }
 
@@ -114,6 +116,7 @@ fn create_connection_cache(
         None,
         Some((client_node_id, bind_address)),
         Some((&staked_nodes, &client_node_id.pubkey())),
+        TLSSupport::default(),
     )
 }
 

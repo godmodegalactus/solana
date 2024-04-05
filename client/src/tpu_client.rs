@@ -82,14 +82,15 @@ impl TpuClient<QuicPool, QuicConnectionManager, QuicConfig> {
         websocket_url: &str,
         config: TpuClientConfig,
     ) -> Result<Self> {
-        let connection_cache = match ConnectionCache::new("connection_cache_tpu_client") {
-            ConnectionCache::Quic(cache) => cache,
-            ConnectionCache::Udp(_) => {
-                return Err(TpuSenderError::Custom(String::from(
-                    "Invalid default connection cache",
-                )))
-            }
-        };
+        let connection_cache =
+            match ConnectionCache::new("connection_cache_tpu_client", config.tls_support) {
+                ConnectionCache::Quic(cache) => cache,
+                ConnectionCache::Udp(_) => {
+                    return Err(TpuSenderError::Custom(String::from(
+                        "Invalid default connection cache",
+                    )))
+                }
+            };
         Self::new_with_connection_cache(rpc_client, websocket_url, config, connection_cache)
     }
 }

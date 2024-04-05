@@ -63,6 +63,7 @@ use {
         hash::Hash,
         instruction::CompiledInstruction,
         message::Message,
+        packet::TLSSupport,
         pubkey::Pubkey,
         signature::{Keypair, Signature, Signer},
         stake,
@@ -263,6 +264,7 @@ fn create_sender_thread(
         true => ConnectionCache::new_quic(
             "connection_cache_dos_quic",
             DEFAULT_TPU_CONNECTION_POOL_SIZE,
+            TLSSupport::default(),
         ),
         false => {
             ConnectionCache::with_udp("connection_cache_dos_udp", DEFAULT_TPU_CONNECTION_POOL_SIZE)
@@ -789,6 +791,7 @@ fn main() {
             true => ConnectionCache::new_quic(
                 "connection_cache_dos_quic",
                 DEFAULT_TPU_CONNECTION_POOL_SIZE,
+                TLSSupport::default(),
             ),
             false => ConnectionCache::with_udp(
                 "connection_cache_dos_udp",

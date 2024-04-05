@@ -60,7 +60,7 @@ use {
         loader_instruction,
         message::Message,
         native_token::Sol,
-        packet::PACKET_DATA_SIZE,
+        packet::{TLSSupport, PACKET_DATA_SIZE},
         pubkey::Pubkey,
         signature::{keypair_from_seed, read_keypair_file, Keypair, Signature, Signer},
         system_instruction::{self, SystemError},
@@ -2821,7 +2821,11 @@ fn send_deploy_messages(
             }
 
             let connection_cache = if config.use_quic {
-                ConnectionCache::new_quic("connection_cache_cli_program_quic", 1)
+                ConnectionCache::new_quic(
+                    "connection_cache_cli_program_quic",
+                    1,
+                    TLSSupport::default(),
+                )
             } else {
                 ConnectionCache::with_udp("connection_cache_cli_program_udp", 1)
             };

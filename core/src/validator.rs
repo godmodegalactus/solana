@@ -110,6 +110,7 @@ use {
         exit::Exit,
         genesis_config::{ClusterType, GenesisConfig},
         hash::Hash,
+        packet::TLSSupport,
         pubkey::Pubkey,
         shred_version::compute_shred_version,
         signature::{Keypair, Signer},
@@ -969,6 +970,7 @@ impl Validator {
                             .ip(),
                     )),
                     Some((&staked_nodes, &identity_keypair.pubkey())),
+                    TLSSupport::default(),
                 );
                 Arc::new(connection_cache)
             }

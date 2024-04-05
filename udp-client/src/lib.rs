@@ -15,7 +15,7 @@ use {
         },
         connection_cache_stats::ConnectionCacheStats,
     },
-    solana_sdk::signature::Keypair,
+    solana_sdk::{packet::TLSSupport, signature::Keypair},
     std::{
         net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
         sync::Arc,
@@ -29,8 +29,13 @@ impl ConnectionPool for UdpPool {
     type BaseClientConnection = Udp;
     type NewConnectionConfig = UdpConfig;
 
-    fn add_connection(&mut self, config: &Self::NewConnectionConfig, addr: &SocketAddr) -> usize {
-        let connection = self.create_pool_entry(config, addr);
+    fn add_connection(
+        &mut self,
+        config: &Self::NewConnectionConfig,
+        addr: &SocketAddr,
+        tls_support: TLSSupport,
+    ) -> usize {
+        let connection = self.create_pool_entry(config, addr, tls_support);
         let idx = self.connections.len();
         self.connections.push(connection);
         idx
@@ -51,6 +56,7 @@ impl ConnectionPool for UdpPool {
         &self,
         config: &Self::NewConnectionConfig,
         _addr: &SocketAddr,
+        _: TLSSupport,
     ) -> Arc<Self::BaseClientConnection> {
         Arc::new(Udp(config.udp_socket.clone()))
     }

@@ -9,7 +9,7 @@ use {
     log::*,
     rand::{thread_rng, Rng},
     solana_measure::measure::Measure,
-    solana_sdk::{signature::Keypair, timing::AtomicInterval},
+    solana_sdk::{packet::TLSSupport, signature::Keypair, timing::AtomicInterval},
     std::{
         net::SocketAddr,
         sync::{atomic::Ordering, Arc, RwLock},
@@ -54,6 +54,7 @@ pub struct ConnectionCache<
     connection_pool_size: usize,
     connection_config: Arc<T>,
     sender: Sender<(usize, SocketAddr)>,
+    tls_support: TLSSupport,
 }
 
 impl<P, M, C> ConnectionCache<P, M, C>
@@ -66,6 +67,7 @@ where
         name: &'static str,
         connection_manager: M,
         connection_pool_size: usize,
+        tls_support: TLSSupport,
     ) -> Result<Self, ClientError> {
         let config = connection_manager.new_connection_config();
         Ok(Self::new_with_config(
@@ -73,6 +75,7 @@ where
             connection_pool_size,
             config,
             connection_manager,
+            tls_support,
         ))
     }
 
@@ -81,6 +84,7 @@ where
         connection_pool_size: usize,
         connection_config: C,
         connection_manager: M,
+        tls_support: TLSSupport,
     ) -> Self {
         info!("Creating ConnectionCache {name}, pool size: {connection_pool_size}");
         let (sender, receiver) = crossbeam_channel::unbounded();
@@ -103,6 +107,7 @@ where
             connection_pool_size,
             connection_config: config,
             sender,
+            tls_support,
         }
     }
 
@@ -172,6 +177,7 @@ where
                     addr,
                     self.connection_pool_size,
                     None,
+                    self.tls_support,
                 )
             } else {
                 (true, 0, 0)
@@ -187,6 +193,7 @@ where
                 addr,
                 self.connection_pool_size,
                 Some(&self.sender),
+                self.tls_support,
             );
         }
 
@@ -209,6 +216,7 @@ where
         addr: &SocketAddr,
         connection_pool_size: usize,
         async_connection_sender: Option<&Sender<(usize, SocketAddr)>>,
+        tls_support: TLSSupport,
     ) -> (bool, u64, u64) {
         // evict a connection if the cache is reaching upper bounds
         let mut num_evictions = 0;
@@ -235,7 +243,7 @@ where
                     pool.check_pool_status(connection_pool_size),
                     PoolStatus::PartiallyFull
                 ) {
-                    let idx = pool.add_connection(config, addr);
+                    let idx = pool.add_connection(config, addr, tls_support);
                     if let Some(sender) = async_connection_sender {
                         debug!(
                             "Sending async connection creation {} for {addr}",
@@ -249,7 +257,7 @@ where
             })
             .or_insert_with(|| {
                 let mut pool = connection_manager.new_connection_pool();
-                pool.add_connection(config, addr);
+                pool.add_connection(config, addr, tls_support);
                 pool
             });
         (
@@ -302,6 +310,7 @@ where
                                 addr,
                                 self.connection_pool_size,
                                 Some(&self.sender),
+                                self.tls_support,
                             );
                         }
                         CreateConnectionResult {
@@ -431,7 +440,12 @@ pub trait ConnectionPool: Send + Sync + 'static {
     type BaseClientConnection: BaseClientConnection;
 
     /// Add a connection to the pool and return its index
-    fn add_connection(&mut self, config: &Self::NewConnectionConfig, addr: &SocketAddr) -> usize;
+    fn add_connection(
+        &mut self,
+        config: &Self::NewConnectionConfig,
+        addr: &SocketAddr,
+        tls_support: TLSSupport,
+    ) -> usize;
 
     /// Get the number of current connections in the pool
     fn num_connections(&self) -> usize;
@@ -463,6 +477,7 @@ pub trait ConnectionPool: Send + Sync + 'static {
         &self,
         config: &Self::NewConnectionConfig,
         addr: &SocketAddr,
+        tls_support: TLSSupport,
     ) -> Arc<Self::BaseClientConnection>;
 }
 
@@ -533,7 +548,7 @@ mod tests {
             config: &Self::NewConnectionConfig,
             addr: &SocketAddr,
         ) -> usize {
-            let connection = self.create_pool_entry(config, addr);
+            let connection = self.create_pool_entry(config, addr, TLSSupport::default());
             let idx = self.connections.len();
             self.connections.push(connection);
             idx
@@ -707,6 +722,7 @@ mod tests {
             "connection_cache_test",
             connection_manager,
             DEFAULT_CONNECTION_POOL_SIZE,
+            TLSSupport::default(),
         )
         .unwrap();
         let addrs = (0..MAX_CONNECTIONS)
@@ -751,8 +767,13 @@ mod tests {
         let port = u16::MAX;
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
         let connection_manager = MockConnectionManager::default();
-        let connection_cache =
-            ConnectionCache::new("connection_cache_test", connection_manager, 1).unwrap();
+        let connection_cache = ConnectionCache::new(
+            "connection_cache_test",
+            connection_manager,
+            1,
+            TLSSupport::default(),
+        )
+        .unwrap();
 
         let conn = connection_cache.get_connection(&addr);
         // We (intentionally) don't have an interface that allows us to distinguish between
