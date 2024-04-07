@@ -433,6 +433,234 @@ impl StreamStats {
             ),
         );
     }
+
+    pub fn print(&self) {
+        println!(
+            "Total Connections: {}",
+            self.total_connections
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Total New Connections: {}",
+            self.total_new_connections
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Total Streams: {}",
+            self.total_streams
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Total New Streams: {}",
+            self.total_new_streams
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Total Invalid Chunks: {}",
+            self.total_invalid_chunks
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Total Invalid Chunk Size: {}",
+            self.total_invalid_chunk_size
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Total Packets Allocated: {}",
+            self.total_packets_allocated
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Total Packet Batches Allocated: {}",
+            self.total_packet_batches_allocated
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Total Chunks Received: {}",
+            self.total_chunks_received
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Total Staked Chunks Received: {}",
+            self.total_staked_chunks_received
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Total Unstaked Chunks Received: {}",
+            self.total_unstaked_chunks_received
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Total Packet Batch Send Errors: {}",
+            self.total_packet_batch_send_err
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Total Handle Chunk to Packet Batcher Send Errors: {}",
+            self.total_handle_chunk_to_packet_batcher_send_err
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Total Packet Batches Sent: {}",
+            self.total_packet_batches_sent
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Total Packet Batches None: {}",
+            self.total_packet_batches_none
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Total Packets Sent for Batching: {}",
+            self.total_packets_sent_for_batching
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Total Bytes Sent for Batching: {}",
+            self.total_bytes_sent_for_batching
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Total Chunks Sent for Batching: {}",
+            self.total_chunks_sent_for_batching
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Total Packets Sent to Consumer: {}",
+            self.total_packets_sent_to_consumer
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Total Bytes Sent to Consumer: {}",
+            self.total_bytes_sent_to_consumer
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Total Chunks Processed by Batcher: {}",
+            self.total_chunks_processed_by_batcher
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Total Stream Read Errors: {}",
+            self.total_stream_read_errors
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Total Stream Read Timeouts: {}",
+            self.total_stream_read_timeouts
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Number of Evictions: {}",
+            self.num_evictions
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Connections Added from Staked Peer: {}",
+            self.connection_added_from_staked_peer
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Connections Added from Unstaked Peer: {}",
+            self.connection_added_from_unstaked_peer
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Connection Add Failed: {}",
+            self.connection_add_failed
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Connection Add Failed Invalid Stream Count: {}",
+            self.connection_add_failed_invalid_stream_count
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Connection Add Failed Staked Node: {}",
+            self.connection_add_failed_staked_node
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Connection Add Failed Unstaked Node: {}",
+            self.connection_add_failed_unstaked_node
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Connection Add Failed on Pruning: {}",
+            self.connection_add_failed_on_pruning
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Connection Setup Timeout: {}",
+            self.connection_setup_timeout
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Connection Setup Error: {}",
+            self.connection_setup_error
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Connection Setup Error Closed: {}",
+            self.connection_setup_error_closed
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Connection Setup Error Timed Out: {}",
+            self.connection_setup_error_timed_out
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Connection Setup Error Transport: {}",
+            self.connection_setup_error_transport
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Connection Setup Error App Closed: {}",
+            self.connection_setup_error_app_closed
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Connection Setup Error Reset: {}",
+            self.connection_setup_error_reset
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Connection Setup Error Locally Closed: {}",
+            self.connection_setup_error_locally_closed
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Connection Removed: {}",
+            self.connection_removed
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Connection Remove Failed: {}",
+            self.connection_remove_failed
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Throttled Streams: {}",
+            self.throttled_streams
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Stream Load EMA: {}",
+            self.stream_load_ema
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Stream Load EMA Overflow: {}",
+            self.stream_load_ema_overflow
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Stream Load Capacity Overflow: {}",
+            self.stream_load_capacity_overflow
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

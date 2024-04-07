@@ -120,6 +120,8 @@ members = [
     "wen-restart",
     "zk-keygen",
     "zk-token-sdk",
+    "bench-quic-tpu/client",
+    "bench-quic-tpu/server",
 ]
 
 exclude = ["programs/sbf", "svm/tests/example-programs"]

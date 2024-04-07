@@ -101,7 +101,7 @@ impl QuicLazyInitializedEndpoint {
         }
     }
 
-    fn create_endpoint(&self, tls_support: TLSSupport) -> Endpoint {
+    pub fn create_endpoint(&self, tls_support: TLSSupport) -> Endpoint {
         let mut endpoint = if let Some(endpoint) = &self.client_endpoint {
             endpoint.clone()
         } else {
