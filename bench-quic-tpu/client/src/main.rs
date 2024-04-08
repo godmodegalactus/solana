@@ -1,13 +1,34 @@
-use std::{str::FromStr, sync::{atomic::AtomicUsize, Arc}};
-
-use clap::Parser;
-use cli::ClientArgs;
-use rand::{distributions::{Alphanumeric, Distribution}, SeedableRng};
-use solana_client::{connection_cache::ConnectionCache, nonblocking::quic_client::{QuicClientCertificate, QuicLazyInitializedEndpoint}};
-use solana_sdk::{compute_budget::ComputeBudgetInstruction, hash::Hash, instruction::{AccountMeta, Instruction}, message::v0, packet::TLSSupport, pubkey::Pubkey, signature::Keypair, signer::Signer, transaction::VersionedTransaction};
-use itertools::Itertools;
-use solana_streamer::tls_certificates::new_dummy_x509_certificate;
-use std::net::SocketAddr;
+use {
+    clap::Parser,
+    cli::ClientArgs,
+    itertools::Itertools,
+    rand::{
+        distributions::{Alphanumeric, Distribution},
+        SeedableRng,
+    },
+    solana_client::{
+        connection_cache::ConnectionCache,
+        nonblocking::quic_client::{QuicClientCertificate, QuicLazyInitializedEndpoint},
+    },
+    solana_sdk::{
+        compute_budget::ComputeBudgetInstruction,
+        hash::Hash,
+        instruction::{AccountMeta, Instruction},
+        message::v0,
+        packet::TLSSupport,
+        pubkey::Pubkey,
+        signature::Keypair,
+        signer::Signer,
+        transaction::VersionedTransaction,
+    },
+    solana_streamer::tls_certificates::new_dummy_x509_certificate,
+    std::{
+        net::SocketAddr,
+        str::FromStr,
+        sync::{atomic::AtomicUsize, Arc},
+        time::Duration,
+    },
+};
 
 mod cli;
 
@@ -69,27 +90,64 @@ pub fn create_memo_tx(
 
 #[derive(Clone, Default)]
 struct ClientStats {
-    pub transactions_sent : Arc<AtomicUsize>,
-    pub connection_failed : Arc<AtomicUsize>,
-    pub unistream_failed : Arc<AtomicUsize>,
-    pub write_failed : Arc<AtomicUsize>,
-    pub finish_failed : Arc<AtomicUsize>,
+    pub transactions_sent: Arc<AtomicUsize>,
+    pub connection_failed: Arc<AtomicUsize>,
+    pub unistream_failed: Arc<AtomicUsize>,
+    pub write_failed: Arc<AtomicUsize>,
+    pub finish_failed: Arc<AtomicUsize>,
 }
 
-fn create_transactions(count: usize, is_large: bool) -> Vec<Vec<u8>> {
+impl ClientStats {
+    pub fn print(&self) {
+        println!(
+            "Transactions successfully sent : {}",
+            self.transactions_sent
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Connections failed : {}",
+            self.connection_failed
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Unistream failed : {}",
+            self.unistream_failed
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Write failed : {}",
+            self.write_failed.load(std::sync::atomic::Ordering::Relaxed)
+        );
+        println!(
+            "Finish failed : {}",
+            self.finish_failed
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+    }
+}
+
+fn _create_transactions(count: usize, is_large: bool) -> Vec<Vec<u8>> {
     let blockhash = Hash::default();
     let payer_keypair = Keypair::new();
     let seed = 42;
-    let size = if is_large {
-        232
-    } else {
-        5
-    };
+    let size = if is_large { 232 } else { 5 };
     let random_strings = generate_random_strings(1, Some(seed), size);
     let rand_string = random_strings.first().unwrap();
 
     let memo_program_id = Pubkey::new_unique();
-    (0..count).map( |_| create_memo_tx(memo_program_id, rand_string, &payer_keypair, blockhash, 300)).collect_vec()
+    (0..count)
+        .map(|_| create_memo_tx(memo_program_id, rand_string, &payer_keypair, blockhash, 300))
+        .collect_vec()
+}
+
+fn create_dummy_data(count: usize, is_large: bool) -> Vec<Vec<u8>> {
+    let size: usize = if is_large {
+        2000
+    } else {
+        200
+    };
+    let vec = (0..size).map(|x| (x%(u8::MAX as usize)) as u8).collect_vec();
+    (0..count).map(|_| vec.clone()).collect_vec()
 }
 
 #[tokio::main]
@@ -100,7 +158,8 @@ pub async fn main() {
 
     let nb_transactions = args.number_of_clients * args.number_of_transactions_per_client;
 
-    let transactions = create_transactions(nb_transactions, args.large_transactions);
+    println!("Creating transactions");
+    let transactions = create_dummy_data(nb_transactions, args.large_transactions);
 
     //let mut jhs = vec![];
     let tls_support = if args.enable_tls_support {
@@ -108,16 +167,31 @@ pub async fn main() {
     } else {
         TLSSupport::SingleCert
     };
-    let transactions_per_connections = (args.number_of_transactions_per_client / args.maximum_number_of_connections).max(args.number_of_transactions_per_client).min(1);
+    let transactions_per_connections = (args.number_of_transactions_per_client
+        / args.maximum_number_of_connections)
+        .max(args.number_of_transactions_per_client)
+        .min(1);
 
     let addr = SocketAddr::from_str(args.server.as_str()).unwrap();
     let client_stats = ClientStats::default();
+    let unistream_count = args.unistream_count;
+
+    println!(
+        "Creating {} clients, sending :{}, through {} connections and {} unistreams",
+        args.number_of_clients,
+        args.number_of_transactions_per_client,
+        args.maximum_number_of_connections,
+        args.unistream_count
+    );
+
     let mut connection_tasks = vec![];
+    // batch by client
     for chunk in transactions.chunks(args.number_of_transactions_per_client) {
         let (certificate, key) = new_dummy_x509_certificate(&Keypair::new());
         let client_certificate = Arc::new(QuicClientCertificate { certificate, key });
         let lazy_endpoint = QuicLazyInitializedEndpoint::new(client_certificate, None);
         let endpoint = Arc::new(lazy_endpoint.create_endpoint(tls_support));
+        // batch by connections
         for client_transactions in chunk.chunks(transactions_per_connections) {
             let client_transactions = client_transactions.to_vec();
             let connecting = endpoint.connect(addr, "connect").unwrap();
@@ -125,33 +199,57 @@ pub async fn main() {
             let connection_task = tokio::spawn(async move {
                 if let Ok(connection) = connecting.await {
                     let connection = Arc::new(connection);
-                    let mut uni_tasks = vec![];
-                    for transaction in client_transactions {
-                        let client_stats = client_stats.clone();
-                        let connection = connection.clone();
-                        let uni_task = tokio::spawn(async move {
-                            if let Ok(mut unistream) = connection.open_uni().await {
-                                if unistream.write_all(&transaction).await.is_err() {
-                                    client_stats.write_failed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                } else if unistream.finish().await.is_err() {
-                                    client_stats.finish_failed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                } else {
-                                    client_stats.transactions_sent.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                }
 
-                            } else {
-                                client_stats.unistream_failed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            }
-                        });
-                        uni_tasks.push(uni_task)
+                    // batch by unistream
+                    for transaction_batch in client_transactions.chunks(unistream_count) {
+                        let mut uni_tasks = vec![];
+                        let transaction_batch = transaction_batch.to_vec();
+                        for transaction in transaction_batch {
+                            let client_stats = client_stats.clone();
+                            let connection = connection.clone();
+                            let uni_task = tokio::spawn(async move {
+                                if let Ok(mut unistream) = connection.open_uni().await {
+                                    if unistream.write_all(&transaction).await.is_err() {
+                                        client_stats
+                                            .write_failed
+                                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    } else if unistream.finish().await.is_err() {
+                                        client_stats
+                                            .finish_failed
+                                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    } else {
+                                        client_stats
+                                            .transactions_sent
+                                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    }
+                                } else {
+                                    client_stats
+                                        .unistream_failed
+                                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                }
+                            });
+                            uni_tasks.push(uni_task)
+                        }
+                        futures::future::join_all(uni_tasks).await;
                     }
-                    futures::future::join_all(uni_tasks).await;
                 } else {
-                    client_stats.connection_failed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    client_stats
+                        .connection_failed
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
             });
             connection_tasks.push(connection_task);
         }
     }
-    futures::future::join_all(connection_tasks).await;
+
+    if tokio::time::timeout(
+        Duration::from_secs(args.timeout_in_seconds),
+        futures::future::join_all(connection_tasks),
+    )
+    .await
+    .is_err()
+    {
+        println!("Operation timed out");
+    }
+    client_stats.print();
 }

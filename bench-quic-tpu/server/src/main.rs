@@ -6,7 +6,6 @@ use {
     solana_sdk::{net::DEFAULT_TPU_COALESCE, packet::TLSSupport, signature::Keypair},
     solana_streamer::{
         nonblocking::quic::{spawn_server, DEFAULT_WAIT_FOR_CHUNK_TIMEOUT},
-        quic::{MAX_STAKED_CONNECTIONS, MAX_UNSTAKED_CONNECTIONS},
         streamer::StakedNodes,
     },
     std::{
@@ -48,8 +47,8 @@ pub async fn main() {
         exit,
         args.maximum_number_of_connections,
         staked_nodes,
-        MAX_STAKED_CONNECTIONS,
-        MAX_UNSTAKED_CONNECTIONS,
+        args.maximum_number_of_connections,
+        args.maximum_number_of_connections,
         DEFAULT_WAIT_FOR_CHUNK_TIMEOUT,
         DEFAULT_TPU_COALESCE,
         tls_support,

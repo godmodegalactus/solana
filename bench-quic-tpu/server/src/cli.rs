@@ -6,7 +6,7 @@ pub struct ServerArgs {
     #[arg(short = 'm', long, default_value_t = 20000)]
     pub maximum_number_of_connections: usize,
 
-    #[arg(short, long, default_value_t = true)]
+    #[arg(short, long, default_value_t = false)]
     pub enable_tls_support: bool,
 
     #[arg(short = 'e', long, default_value_t = 1_000_000)]
@@ -16,6 +16,5 @@ pub struct ServerArgs {
     pub timeout_in_seconds: usize,
 
     #[arg(short = 'p', long, default_value_t = 10800)]
-    pub server_port : u16,
-
+    pub server_port: u16,
 }
