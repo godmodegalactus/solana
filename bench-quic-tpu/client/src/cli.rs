@@ -3,10 +3,13 @@ use {clap::Parser, std::str::FromStr};
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
 pub struct ClientArgs {
+    #[arg(short = 'i', long, default_value_t = String::from_str("id.json").unwrap())]
+    pub identity: String,
+
     #[arg(short = 'm', long, default_value_t = 20000)]
     pub maximum_number_of_connections: usize,
 
-    #[arg(short, long, default_value_t = false)]
+    #[arg(short = 'e', long, default_value_t = false)]
     pub enable_tls_support: bool,
 
     #[arg(short = 'n', long, default_value_t = 1)]

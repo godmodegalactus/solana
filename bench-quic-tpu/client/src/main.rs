@@ -1,6 +1,7 @@
 use {
     clap::Parser,
     cli::ClientArgs,
+    futures::StreamExt,
     itertools::Itertools,
     rand::{
         distributions::{Alphanumeric, Distribution},
@@ -141,13 +142,24 @@ fn _create_transactions(count: usize, is_large: bool) -> Vec<Vec<u8>> {
 }
 
 fn create_dummy_data(count: usize, is_large: bool) -> Vec<Vec<u8>> {
-    let size: usize = if is_large {
-        2000
-    } else {
-        200
-    };
-    let vec = (0..size).map(|x| (x%(u8::MAX as usize)) as u8).collect_vec();
+    let size: usize = if is_large { 2000 } else { 200 };
+    let vec = (0..size)
+        .map(|x| (x % (u8::MAX as usize)) as u8)
+        .collect_vec();
     (0..count).map(|_| vec.clone()).collect_vec()
+}
+
+pub async fn load_identity_keypair(identity_keyfile_path: String) -> Keypair {
+    let bytes = tokio::fs::read_to_string(identity_keyfile_path).await;
+
+    if let Ok(bytes) = bytes {
+        let identity_bytes: Vec<u8> = serde_json::from_str(&bytes).unwrap();
+        println!("Loading identity from file");
+        Keypair::from_bytes(identity_bytes.as_slice()).unwrap()
+    } else {
+        println!("Kp file does not exist so creating a new one");
+        Keypair::new()
+    }
 }
 
 #[tokio::main]
@@ -184,10 +196,12 @@ pub async fn main() {
         args.unistream_count
     );
 
-    let mut connection_tasks = vec![];
+    let connection_tasks = futures::stream::FuturesUnordered::new();
+
+    let keypair = load_identity_keypair(args.identity).await;
     // batch by client
     for chunk in transactions.chunks(args.number_of_transactions_per_client) {
-        let (certificate, key) = new_dummy_x509_certificate(&Keypair::new());
+        let (certificate, key) = new_dummy_x509_certificate(&keypair);
         let client_certificate = Arc::new(QuicClientCertificate { certificate, key });
         let lazy_endpoint = QuicLazyInitializedEndpoint::new(client_certificate, None);
         let endpoint = Arc::new(lazy_endpoint.create_endpoint(tls_support));
@@ -202,11 +216,12 @@ pub async fn main() {
 
                     // batch by unistream
                     for transaction_batch in client_transactions.chunks(unistream_count) {
-                        let mut uni_tasks = vec![];
+                        let mut uni_tasks = futures::stream::FuturesUnordered::new();
                         let transaction_batch = transaction_batch.to_vec();
                         for transaction in transaction_batch {
                             let client_stats = client_stats.clone();
                             let connection = connection.clone();
+
                             let uni_task = tokio::spawn(async move {
                                 if let Ok(mut unistream) = connection.open_uni().await {
                                     if unistream.write_all(&transaction).await.is_err() {
@@ -230,7 +245,9 @@ pub async fn main() {
                             });
                             uni_tasks.push(uni_task)
                         }
-                        futures::future::join_all(uni_tasks).await;
+                        while uni_tasks.next().await.is_some() {
+                            // do nothing
+                        }
                     }
                 } else {
                     client_stats

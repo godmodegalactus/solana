@@ -3,12 +3,16 @@ mod cli;
 use {
     clap::Parser,
     cli::ServerArgs,
-    solana_sdk::{net::DEFAULT_TPU_COALESCE, packet::TLSSupport, signature::Keypair},
+    solana_sdk::{
+        native_token::LAMPORTS_PER_SOL, net::DEFAULT_TPU_COALESCE, packet::TLSSupport,
+        signature::Keypair, signer::Signer,
+    },
     solana_streamer::{
         nonblocking::quic::{spawn_server, DEFAULT_WAIT_FOR_CHUNK_TIMEOUT},
         streamer::StakedNodes,
     },
     std::{
+        collections::HashMap,
         net::UdpSocket,
         sync::{
             atomic::{AtomicBool, AtomicUsize},
@@ -18,6 +22,19 @@ use {
     },
 };
 
+pub async fn load_identity_keypair(identity_keyfile_path: String) -> Keypair {
+    let bytes = tokio::fs::read_to_string(identity_keyfile_path).await;
+
+    if let Ok(bytes) = bytes {
+        let identity_bytes: Vec<u8> = serde_json::from_str(&bytes).unwrap();
+        println!("Loading identity from file");
+        Keypair::from_bytes(identity_bytes.as_slice()).unwrap()
+    } else {
+        println!("Kp file does not exist so creating a new one");
+        Keypair::new()
+    }
+}
+
 #[tokio::main]
 pub async fn main() {
     solana_logger::setup_with_default_filter();
@@ -25,12 +42,16 @@ pub async fn main() {
 
     let (sender, receiver) = crossbeam_channel::unbounded();
 
-    let staked_nodes = Arc::new(RwLock::new(StakedNodes::default()));
     // will create random free port
     let sock = UdpSocket::bind(format!("0.0.0.0:{}", args.server_port)).unwrap();
     let exit = Arc::new(AtomicBool::new(false));
     // keypair to derive the server tls certificate
-    let keypair = Keypair::new();
+    let keypair = load_identity_keypair(args.identity).await;
+
+    let mut hashmap = HashMap::new();
+    hashmap.insert(keypair.pubkey(), LAMPORTS_PER_SOL);
+    let nodes = StakedNodes::new(Arc::new(hashmap), HashMap::new());
+    let staked_nodes = Arc::new(RwLock::new(nodes));
     let packets_count = Arc::new(AtomicUsize::new(0));
 
     let tls_support = if args.enable_tls_support {
