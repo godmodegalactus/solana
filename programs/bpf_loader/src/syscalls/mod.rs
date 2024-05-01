@@ -34,7 +34,7 @@ use {
         feature_set::bpf_account_data_direct_mapping,
         feature_set::FeatureSet,
         feature_set::{
-            self, blake3_syscall_enabled, curve25519_syscall_enabled,
+            self, abort_on_invalid_curve, blake3_syscall_enabled, curve25519_syscall_enabled,
             disable_deploy_of_alloc_free_syscall, disable_fees_sysvar,
             enable_alt_bn128_compression_syscall, enable_alt_bn128_syscall,
             enable_big_mod_exp_syscall, enable_partitioned_epoch_reward, enable_poseidon_syscall,
@@ -916,7 +916,16 @@ declare_builtin_function!(
                     Ok(1)
                 }
             }
-            _ => Ok(1),
+            _ => {
+                if invoke_context
+                    .feature_set
+                    .is_active(&abort_on_invalid_curve::id())
+                {
+                    Err(SyscallError::InvalidAttribute.into())
+                } else {
+                    Ok(1)
+                }
+            }
         }
     }
 );
@@ -1024,7 +1033,16 @@ declare_builtin_function!(
                         Ok(1)
                     }
                 }
-                _ => Ok(1),
+                _ => {
+                    if invoke_context
+                        .feature_set
+                        .is_active(&abort_on_invalid_curve::id())
+                    {
+                        Err(SyscallError::InvalidAttribute.into())
+                    } else {
+                        Ok(1)
+                    }
+                }
             },
 
             CURVE25519_RISTRETTO => match group_op {
@@ -1114,10 +1132,28 @@ declare_builtin_function!(
                         Ok(1)
                     }
                 }
-                _ => Ok(1),
+                _ => {
+                    if invoke_context
+                        .feature_set
+                        .is_active(&abort_on_invalid_curve::id())
+                    {
+                        Err(SyscallError::InvalidAttribute.into())
+                    } else {
+                        Ok(1)
+                    }
+                }
             },
 
-            _ => Ok(1),
+            _ => {
+                if invoke_context
+                    .feature_set
+                    .is_active(&abort_on_invalid_curve::id())
+                {
+                    Err(SyscallError::InvalidAttribute.into())
+                } else {
+                    Ok(1)
+                }
+            }
         }
     }
 );
@@ -1140,14 +1176,8 @@ declare_builtin_function!(
             curve_syscall_traits::*, edwards, ristretto, scalar,
         };
 
-        let restrict_msm_length = invoke_context
-            .feature_set
-            .is_active(&feature_set::curve25519_restrict_msm_length::id());
-        #[allow(clippy::collapsible_if)]
-        if restrict_msm_length {
-            if points_len > 512 {
-                return Err(Box::new(SyscallError::InvalidLength));
-            }
+        if points_len > 512 {
+            return Err(Box::new(SyscallError::InvalidLength));
         }
 
         match curve_id {
@@ -1229,7 +1259,16 @@ declare_builtin_function!(
                 }
             }
 
-            _ => Ok(1),
+            _ => {
+                if invoke_context
+                    .feature_set
+                    .is_active(&abort_on_invalid_curve::id())
+                {
+                    Err(SyscallError::InvalidAttribute.into())
+                } else {
+                    Ok(1)
+                }
+            }
         }
     }
 );

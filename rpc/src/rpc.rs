@@ -61,7 +61,7 @@ use {
     solana_sdk::{
         account::{AccountSharedData, ReadableAccount},
         account_utils::StateMut,
-        clock::{Slot, UnixTimestamp, MAX_RECENT_BLOCKHASHES},
+        clock::{Slot, UnixTimestamp, MAX_PROCESSING_AGE},
         commitment_config::{CommitmentConfig, CommitmentLevel},
         epoch_info::EpochInfo,
         epoch_schedule::EpochSchedule,
@@ -3687,7 +3687,11 @@ pub mod rpc_full {
                 min_context_slot,
             })?;
 
-            let transaction = sanitize_transaction(unsanitized_tx, preflight_bank)?;
+            let transaction = sanitize_transaction(
+                unsanitized_tx,
+                preflight_bank,
+                preflight_bank.get_reserved_account_keys(),
+            )?;
             let signature = *transaction.signature();
 
             let mut last_valid_block_height = preflight_bank
@@ -3702,8 +3706,7 @@ pub mod rpc_full {
                 // It provides a fallback timeout for durable-nonce transaction retries in case of
                 // malicious packing of the retry queue. Durable-nonce transactions are otherwise
                 // retried until the nonce is advanced.
-                last_valid_block_height =
-                    preflight_bank.block_height() + MAX_RECENT_BLOCKHASHES as u64;
+                last_valid_block_height = preflight_bank.block_height() + MAX_PROCESSING_AGE as u64;
             }
 
             if !skip_preflight {
@@ -3819,7 +3822,8 @@ pub mod rpc_full {
                 });
             }
 
-            let transaction = sanitize_transaction(unsanitized_tx, bank)?;
+            let transaction =
+                sanitize_transaction(unsanitized_tx, bank, bank.get_reserved_account_keys())?;
             if sig_verify {
                 verify_transaction(&transaction, &bank.feature_set)?;
             }
@@ -4071,10 +4075,12 @@ pub mod rpc_full {
                 .map_err(|err| {
                     Error::invalid_params(format!("invalid transaction message: {err}"))
                 })?;
-            let sanitized_message = SanitizedMessage::try_new(sanitized_versioned_message, bank)
-                .map_err(|err| {
-                    Error::invalid_params(format!("invalid transaction message: {err}"))
-                })?;
+            let sanitized_message = SanitizedMessage::try_new(
+                sanitized_versioned_message,
+                bank,
+                bank.get_reserved_account_keys(),
+            )
+            .map_err(|err| Error::invalid_params(format!("invalid transaction message: {err}")))?;
             let fee = bank.get_fee_for_message(&sanitized_message);
             Ok(new_response(bank, fee))
         }
@@ -4653,9 +4659,16 @@ where
 fn sanitize_transaction(
     transaction: VersionedTransaction,
     address_loader: impl AddressLoader,
+    reserved_account_keys: &HashSet<Pubkey>,
 ) -> Result<SanitizedTransaction> {
-    SanitizedTransaction::try_create(transaction, MessageHash::Compute, None, address_loader)
-        .map_err(|err| Error::invalid_params(format!("invalid transaction: {err}")))
+    SanitizedTransaction::try_create(
+        transaction,
+        MessageHash::Compute,
+        None,
+        address_loader,
+        reserved_account_keys,
+    )
+    .map_err(|err| Error::invalid_params(format!("invalid transaction: {err}")))
 }
 
 pub fn create_validator_exit(exit: Arc<AtomicBool>) -> Arc<RwLock<Exit>> {
@@ -4791,7 +4804,7 @@ pub mod tests {
                 self,
                 state::{AddressLookupTable, LookupTableMeta},
             },
-            clock::MAX_RECENT_BLOCKHASHES,
+            clock::MAX_PROCESSING_AGE,
             compute_budget::ComputeBudgetInstruction,
             fee_calculator::{FeeRateGovernor, DEFAULT_BURN_PERCENT},
             hash::{hash, Hash},
@@ -4801,6 +4814,7 @@ pub mod tests {
                 Message, MessageHeader, VersionedMessage,
             },
             nonce::{self, state::DurableNonce},
+            reserved_account_keys::ReservedAccountKeys,
             rpc_port,
             signature::{Keypair, Signer},
             slot_hashes::SlotHashes,
@@ -4822,7 +4836,8 @@ pub mod tests {
         spl_token_2022::{
             extension::{
                 immutable_owner::ImmutableOwner, memo_transfer::MemoTransfer,
-                mint_close_authority::MintCloseAuthority, ExtensionType, StateWithExtensionsMut,
+                mint_close_authority::MintCloseAuthority, BaseStateWithExtensionsMut,
+                ExtensionType, StateWithExtensionsMut,
             },
             solana_program::{program_option::COption, pubkey::Pubkey as SplTokenPubkey},
             state::{AccountState as TokenAccountState, Mint},
@@ -5117,11 +5132,11 @@ pub mod tests {
             self.bank_forks.write().unwrap().insert(new_bank);
 
             for root in roots.iter() {
-                self.bank_forks.write().unwrap().set_root(
-                    *root,
-                    &AbsRequestSender::default(),
-                    Some(0),
-                );
+                self.bank_forks
+                    .write()
+                    .unwrap()
+                    .set_root(*root, &AbsRequestSender::default(), Some(0))
+                    .unwrap();
                 let block_time = self
                     .bank_forks
                     .read()
@@ -5278,6 +5293,7 @@ pub mod tests {
     #[test]
     fn test_rpc_get_cluster_nodes() {
         let rpc = RpcHandler::start();
+        let version = solana_version::Version::default();
         let request = create_test_request("getClusterNodes", None);
         let result: Value = parse_success_result(rpc.handle_request_sync(request));
         let expected = json!([{
@@ -5288,8 +5304,8 @@ pub mod tests {
             "tpuQuic": "127.0.0.1:8009",
             "rpc": format!("127.0.0.1:{}", rpc_port::DEFAULT_RPC_PORT),
             "pubsub": format!("127.0.0.1:{}", rpc_port::DEFAULT_RPC_PUBSUB_PORT),
-            "version": null,
-            "featureSet": null,
+            "version": format!("{version}"),
+            "featureSet": version.feature_set,
         }, {
             "pubkey": rpc.leader_pubkey().to_string(),
             "gossip": "127.0.0.1:1235",
@@ -5298,8 +5314,8 @@ pub mod tests {
             "tpuQuic": "127.0.0.1:1240",
             "rpc": format!("127.0.0.1:{}", rpc_port::DEFAULT_RPC_PORT),
             "pubsub": format!("127.0.0.1:{}", rpc_port::DEFAULT_RPC_PUBSUB_PORT),
-            "version": null,
-            "featureSet": null,
+            "version": format!("{version}"),
+            "featureSet": version.feature_set,
         }]);
         assert_eq!(result, expected);
     }
@@ -6778,8 +6794,8 @@ pub mod tests {
                     "feeCalculator": {
                         "lamportsPerSignature": TEST_SIGNATURE_FEE,
                     },
-                    "lastValidSlot": MAX_RECENT_BLOCKHASHES,
-                    "lastValidBlockHeight": MAX_RECENT_BLOCKHASHES,
+                    "lastValidSlot": MAX_PROCESSING_AGE,
+                    "lastValidBlockHeight": MAX_PROCESSING_AGE,
                 },
             },
             "id": 1
@@ -9079,8 +9095,12 @@ pub mod tests {
                 .to_string(),
         );
         assert_eq!(
-            sanitize_transaction(unsanitary_versioned_tx, SimpleAddressLoader::Disabled)
-                .unwrap_err(),
+            sanitize_transaction(
+                unsanitary_versioned_tx,
+                SimpleAddressLoader::Disabled,
+                &ReservedAccountKeys::empty_key_set()
+            )
+            .unwrap_err(),
             expect58
         );
     }
@@ -9100,7 +9120,12 @@ pub mod tests {
         };
 
         assert_eq!(
-            sanitize_transaction(versioned_tx, SimpleAddressLoader::Disabled).unwrap_err(),
+            sanitize_transaction(
+                versioned_tx,
+                SimpleAddressLoader::Disabled,
+                &ReservedAccountKeys::empty_key_set()
+            )
+            .unwrap_err(),
             Error::invalid_params(
                 "invalid transaction: Transaction version is unsupported".to_string(),
             )

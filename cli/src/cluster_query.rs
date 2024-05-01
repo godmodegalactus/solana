@@ -1,7 +1,9 @@
+#![allow(clippy::arithmetic_side_effects)]
+
 use {
     crate::{
         cli::{CliCommand, CliCommandInfo, CliConfig, CliError, ProcessResult},
-        compute_unit_price::WithComputeUnitPrice,
+        compute_budget::WithComputeUnitPrice,
         feature::get_feature_activation_epoch,
         spend_utils::{resolve_spend_tx_and_check_account_balance, SpendAmount},
     },
@@ -55,7 +57,7 @@ use {
         signature::Signature,
         slot_history,
         stake::{self, state::StakeStateV2},
-        system_instruction,
+        system_instruction::{self, MAX_PERMITTED_DATA_LENGTH},
         sysvar::{
             self,
             slot_history::SlotHistory,
@@ -98,6 +100,28 @@ impl ClusterQuerySubCommands for App<'_, '_> {
                         .value_name("SLOT")
                         .takes_value(true)
                         .index(1),
+                ),
+        )
+        .subcommand(
+            SubCommand::with_name("recent-prioritization-fees")
+                .about("Get recent prioritization fees")
+                .arg(
+                    Arg::with_name("accounts")
+                        .value_name("ACCOUNTS")
+                        .takes_value(true)
+                        .multiple(true)
+                        .index(1)
+                        .help(
+                            "A list of accounts which if provided the fee response will represent\
+                            the fee to land a transaction with those accounts as writable",
+                        ),
+                )
+                .arg(
+                    Arg::with_name("limit_num_slots")
+                        .long("limit-num-slots")
+                        .value_name("SLOTS")
+                        .takes_value(true)
+                        .help("Limit the number of slots to the last <N> slots"),
                 ),
         )
         .subcommand(
@@ -527,16 +551,13 @@ pub fn parse_catchup(
     }
     let follow = matches.is_present("follow");
     let log = matches.is_present("log");
-    Ok(CliCommandInfo {
-        command: CliCommand::Catchup {
-            node_pubkey,
-            node_json_rpc_url,
-            follow,
-            our_localhost_port,
-            log,
-        },
-        signers: vec![],
-    })
+    Ok(CliCommandInfo::without_signers(CliCommand::Catchup {
+        node_pubkey,
+        node_json_rpc_url,
+        follow,
+        our_localhost_port,
+        log,
+    }))
 }
 
 pub fn parse_cluster_ping(
@@ -569,46 +590,45 @@ pub fn parse_cluster_ping(
 
 pub fn parse_get_block(matches: &ArgMatches<'_>) -> Result<CliCommandInfo, CliError> {
     let slot = value_of(matches, "slot");
-    Ok(CliCommandInfo {
-        command: CliCommand::GetBlock { slot },
-        signers: vec![],
-    })
+    Ok(CliCommandInfo::without_signers(CliCommand::GetBlock {
+        slot,
+    }))
+}
+
+pub fn parse_get_recent_prioritization_fees(
+    matches: &ArgMatches<'_>,
+) -> Result<CliCommandInfo, CliError> {
+    let accounts = values_of(matches, "accounts").unwrap_or(vec![]);
+    let limit_num_slots = value_of(matches, "limit_num_slots");
+    Ok(CliCommandInfo::without_signers(
+        CliCommand::GetRecentPrioritizationFees {
+            accounts,
+            limit_num_slots,
+        },
+    ))
 }
 
 pub fn parse_get_block_time(matches: &ArgMatches<'_>) -> Result<CliCommandInfo, CliError> {
     let slot = value_of(matches, "slot");
-    Ok(CliCommandInfo {
-        command: CliCommand::GetBlockTime { slot },
-        signers: vec![],
-    })
+    Ok(CliCommandInfo::without_signers(CliCommand::GetBlockTime {
+        slot,
+    }))
 }
 
 pub fn parse_get_epoch(_matches: &ArgMatches<'_>) -> Result<CliCommandInfo, CliError> {
-    Ok(CliCommandInfo {
-        command: CliCommand::GetEpoch,
-        signers: vec![],
-    })
+    Ok(CliCommandInfo::without_signers(CliCommand::GetEpoch))
 }
 
 pub fn parse_get_epoch_info(_matches: &ArgMatches<'_>) -> Result<CliCommandInfo, CliError> {
-    Ok(CliCommandInfo {
-        command: CliCommand::GetEpochInfo,
-        signers: vec![],
-    })
+    Ok(CliCommandInfo::without_signers(CliCommand::GetEpochInfo))
 }
 
 pub fn parse_get_slot(_matches: &ArgMatches<'_>) -> Result<CliCommandInfo, CliError> {
-    Ok(CliCommandInfo {
-        command: CliCommand::GetSlot,
-        signers: vec![],
-    })
+    Ok(CliCommandInfo::without_signers(CliCommand::GetSlot))
 }
 
 pub fn parse_get_block_height(_matches: &ArgMatches<'_>) -> Result<CliCommandInfo, CliError> {
-    Ok(CliCommandInfo {
-        command: CliCommand::GetBlockHeight,
-        signers: vec![],
-    })
+    Ok(CliCommandInfo::without_signers(CliCommand::GetBlockHeight))
 }
 
 pub fn parse_largest_accounts(matches: &ArgMatches<'_>) -> Result<CliCommandInfo, CliError> {
@@ -619,32 +639,26 @@ pub fn parse_largest_accounts(matches: &ArgMatches<'_>) -> Result<CliCommandInfo
     } else {
         None
     };
-    Ok(CliCommandInfo {
-        command: CliCommand::LargestAccounts { filter },
-        signers: vec![],
-    })
+    Ok(CliCommandInfo::without_signers(
+        CliCommand::LargestAccounts { filter },
+    ))
 }
 
 pub fn parse_supply(matches: &ArgMatches<'_>) -> Result<CliCommandInfo, CliError> {
     let print_accounts = matches.is_present("print_accounts");
-    Ok(CliCommandInfo {
-        command: CliCommand::Supply { print_accounts },
-        signers: vec![],
-    })
+    Ok(CliCommandInfo::without_signers(CliCommand::Supply {
+        print_accounts,
+    }))
 }
 
 pub fn parse_total_supply(_matches: &ArgMatches<'_>) -> Result<CliCommandInfo, CliError> {
-    Ok(CliCommandInfo {
-        command: CliCommand::TotalSupply,
-        signers: vec![],
-    })
+    Ok(CliCommandInfo::without_signers(CliCommand::TotalSupply))
 }
 
 pub fn parse_get_transaction_count(_matches: &ArgMatches<'_>) -> Result<CliCommandInfo, CliError> {
-    Ok(CliCommandInfo {
-        command: CliCommand::GetTransactionCount,
-        signers: vec![],
-    })
+    Ok(CliCommandInfo::without_signers(
+        CliCommand::GetTransactionCount,
+    ))
 }
 
 pub fn parse_show_stakes(
@@ -655,14 +669,11 @@ pub fn parse_show_stakes(
     let vote_account_pubkeys =
         pubkeys_of_multiple_signers(matches, "vote_account_pubkeys", wallet_manager)?;
     let withdraw_authority = pubkey_of(matches, "withdraw_authority");
-    Ok(CliCommandInfo {
-        command: CliCommand::ShowStakes {
-            use_lamports_unit,
-            vote_account_pubkeys,
-            withdraw_authority,
-        },
-        signers: vec![],
-    })
+    Ok(CliCommandInfo::without_signers(CliCommand::ShowStakes {
+        use_lamports_unit,
+        vote_account_pubkeys,
+        withdraw_authority,
+    }))
 }
 
 pub fn parse_show_validators(matches: &ArgMatches<'_>) -> Result<CliCommandInfo, CliError> {
@@ -686,8 +697,8 @@ pub fn parse_show_validators(matches: &ArgMatches<'_>) -> Result<CliCommandInfo,
         _ => unreachable!(),
     };
 
-    Ok(CliCommandInfo {
-        command: CliCommand::ShowValidators {
+    Ok(CliCommandInfo::without_signers(
+        CliCommand::ShowValidators {
             use_lamports_unit,
             sort_order,
             reverse_sort,
@@ -695,8 +706,7 @@ pub fn parse_show_validators(matches: &ArgMatches<'_>) -> Result<CliCommandInfo,
             keep_unstaked_delinquents,
             delinquent_slot_distance,
         },
-        signers: vec![],
-    })
+    ))
 }
 
 pub fn parse_transaction_history(
@@ -724,16 +734,15 @@ pub fn parse_transaction_history(
     let limit = value_t_or_exit!(matches, "limit", usize);
     let show_transactions = matches.is_present("show_transactions");
 
-    Ok(CliCommandInfo {
-        command: CliCommand::TransactionHistory {
+    Ok(CliCommandInfo::without_signers(
+        CliCommand::TransactionHistory {
             address,
             before,
             until,
             limit,
             show_transactions,
         },
-        signers: vec![],
-    })
+    ))
 }
 
 pub fn process_catchup(
@@ -1019,10 +1028,9 @@ pub fn process_first_available_block(rpc_client: &RpcClient) -> ProcessResult {
 
 pub fn parse_leader_schedule(matches: &ArgMatches<'_>) -> Result<CliCommandInfo, CliError> {
     let epoch = value_of(matches, "epoch");
-    Ok(CliCommandInfo {
-        command: CliCommand::LeaderSchedule { epoch },
-        signers: vec![],
-    })
+    Ok(CliCommandInfo::without_signers(
+        CliCommand::LeaderSchedule { epoch },
+    ))
 }
 
 pub fn process_leader_schedule(
@@ -1069,6 +1077,41 @@ pub fn process_leader_schedule(
         epoch,
         leader_schedule_entries,
     }))
+}
+
+pub fn process_get_recent_priority_fees(
+    rpc_client: &RpcClient,
+    config: &CliConfig,
+    accounts: &[Pubkey],
+    limit_num_slots: Option<Slot>,
+) -> ProcessResult {
+    let fees = rpc_client.get_recent_prioritization_fees(accounts)?;
+    let mut min = u64::MAX;
+    let mut max = 0;
+    let mut total = 0;
+    let num_slots = limit_num_slots
+        .unwrap_or(fees.len() as u64)
+        .min(fees.len() as u64)
+        .max(1) as usize;
+    let mut cli_fees = Vec::with_capacity(fees.len());
+    for fee in fees.iter().skip(fees.len().saturating_sub(num_slots)) {
+        min = min.min(fee.prioritization_fee);
+        max = max.max(fee.prioritization_fee);
+        total += fee.prioritization_fee;
+        cli_fees.push(CliPrioritizationFee {
+            slot: fee.slot,
+            prioritization_fee: fee.prioritization_fee,
+        });
+    }
+    Ok(config
+        .output_format
+        .formatted_string(&CliPrioritizationFeeStats {
+            fees: cli_fees,
+            min,
+            max,
+            average: total / num_slots as u64,
+            num_slots: num_slots as u64,
+        }))
 }
 
 pub fn process_get_block(
@@ -1189,10 +1232,9 @@ pub fn parse_show_block_production(matches: &ArgMatches<'_>) -> Result<CliComman
     let epoch = value_t!(matches, "epoch", Epoch).ok();
     let slot_limit = value_t!(matches, "slot_limit", u64).ok();
 
-    Ok(CliCommandInfo {
-        command: CliCommand::ShowBlockProduction { epoch, slot_limit },
-        signers: vec![],
-    })
+    Ok(CliCommandInfo::without_signers(
+        CliCommand::ShowBlockProduction { epoch, slot_limit },
+    ))
 }
 
 pub fn process_show_block_production(
@@ -1622,10 +1664,7 @@ pub fn parse_logs(
         Some(address) => RpcTransactionLogsFilter::Mentions(vec![address.to_string()]),
     };
 
-    Ok(CliCommandInfo {
-        command: CliCommand::Logs { filter },
-        signers: vec![],
-    })
+    Ok(CliCommandInfo::without_signers(CliCommand::Logs { filter }))
 }
 
 pub fn process_logs(config: &CliConfig, filter: &RpcTransactionLogsFilter) -> ProcessResult {
@@ -2212,6 +2251,9 @@ pub fn process_calculate_rent(
     data_length: usize,
     use_lamports_unit: bool,
 ) -> ProcessResult {
+    if data_length > MAX_PERMITTED_DATA_LENGTH.try_into().unwrap() {
+        eprintln!("Warning: Maximum account size is {MAX_PERMITTED_DATA_LENGTH} bytes, {data_length} provided");
+    }
     let rent_account = rpc_client.get_account(&sysvar::rent::id())?;
     let rent: Rent = rent_account.deserialize_data()?;
     let rent_exempt_minimum_lamports = rent.minimum_balance(data_length);
@@ -2253,10 +2295,7 @@ mod tests {
             .get_matches_from(vec!["test", "cluster-date"]);
         assert_eq!(
             parse_command(&test_cluster_version, &default_signer, &mut None).unwrap(),
-            CliCommandInfo {
-                command: CliCommand::ClusterDate,
-                signers: vec![],
-            }
+            CliCommandInfo::without_signers(CliCommand::ClusterDate)
         );
 
         let test_cluster_version = test_commands
@@ -2264,19 +2303,13 @@ mod tests {
             .get_matches_from(vec!["test", "cluster-version"]);
         assert_eq!(
             parse_command(&test_cluster_version, &default_signer, &mut None).unwrap(),
-            CliCommandInfo {
-                command: CliCommand::ClusterVersion,
-                signers: vec![],
-            }
+            CliCommandInfo::without_signers(CliCommand::ClusterVersion)
         );
 
         let test_fees = test_commands.clone().get_matches_from(vec!["test", "fees"]);
         assert_eq!(
             parse_command(&test_fees, &default_signer, &mut None).unwrap(),
-            CliCommandInfo {
-                command: CliCommand::Fees { blockhash: None },
-                signers: vec![],
-            }
+            CliCommandInfo::without_signers(CliCommand::Fees { blockhash: None })
         );
 
         let blockhash = Hash::new_unique();
@@ -2288,12 +2321,9 @@ mod tests {
         ]);
         assert_eq!(
             parse_command(&test_fees, &default_signer, &mut None).unwrap(),
-            CliCommandInfo {
-                command: CliCommand::Fees {
-                    blockhash: Some(blockhash)
-                },
-                signers: vec![],
-            }
+            CliCommandInfo::without_signers(CliCommand::Fees {
+                blockhash: Some(blockhash)
+            })
         );
 
         let slot = 100;
@@ -2303,10 +2333,7 @@ mod tests {
                 .get_matches_from(vec!["test", "block-time", &slot.to_string()]);
         assert_eq!(
             parse_command(&test_get_block_time, &default_signer, &mut None).unwrap(),
-            CliCommandInfo {
-                command: CliCommand::GetBlockTime { slot: Some(slot) },
-                signers: vec![],
-            }
+            CliCommandInfo::without_signers(CliCommand::GetBlockTime { slot: Some(slot) })
         );
 
         let test_get_epoch = test_commands
@@ -2314,10 +2341,7 @@ mod tests {
             .get_matches_from(vec!["test", "epoch"]);
         assert_eq!(
             parse_command(&test_get_epoch, &default_signer, &mut None).unwrap(),
-            CliCommandInfo {
-                command: CliCommand::GetEpoch,
-                signers: vec![],
-            }
+            CliCommandInfo::without_signers(CliCommand::GetEpoch)
         );
 
         let test_get_epoch_info = test_commands
@@ -2325,10 +2349,7 @@ mod tests {
             .get_matches_from(vec!["test", "epoch-info"]);
         assert_eq!(
             parse_command(&test_get_epoch_info, &default_signer, &mut None).unwrap(),
-            CliCommandInfo {
-                command: CliCommand::GetEpochInfo,
-                signers: vec![],
-            }
+            CliCommandInfo::without_signers(CliCommand::GetEpochInfo)
         );
 
         let test_get_genesis_hash = test_commands
@@ -2336,19 +2357,13 @@ mod tests {
             .get_matches_from(vec!["test", "genesis-hash"]);
         assert_eq!(
             parse_command(&test_get_genesis_hash, &default_signer, &mut None).unwrap(),
-            CliCommandInfo {
-                command: CliCommand::GetGenesisHash,
-                signers: vec![],
-            }
+            CliCommandInfo::without_signers(CliCommand::GetGenesisHash)
         );
 
         let test_get_slot = test_commands.clone().get_matches_from(vec!["test", "slot"]);
         assert_eq!(
             parse_command(&test_get_slot, &default_signer, &mut None).unwrap(),
-            CliCommandInfo {
-                command: CliCommand::GetSlot,
-                signers: vec![],
-            }
+            CliCommandInfo::without_signers(CliCommand::GetSlot)
         );
 
         let test_total_supply = test_commands
@@ -2356,10 +2371,7 @@ mod tests {
             .get_matches_from(vec!["test", "total-supply"]);
         assert_eq!(
             parse_command(&test_total_supply, &default_signer, &mut None).unwrap(),
-            CliCommandInfo {
-                command: CliCommand::TotalSupply,
-                signers: vec![],
-            }
+            CliCommandInfo::without_signers(CliCommand::TotalSupply)
         );
 
         let test_transaction_count = test_commands
@@ -2367,10 +2379,7 @@ mod tests {
             .get_matches_from(vec!["test", "transaction-count"]);
         assert_eq!(
             parse_command(&test_transaction_count, &default_signer, &mut None).unwrap(),
-            CliCommandInfo {
-                command: CliCommand::GetTransactionCount,
-                signers: vec![],
-            }
+            CliCommandInfo::without_signers(CliCommand::GetTransactionCount)
         );
 
         let test_ping = test_commands.clone().get_matches_from(vec![
