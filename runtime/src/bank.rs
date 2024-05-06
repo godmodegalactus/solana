@@ -41,9 +41,7 @@ use {
         bank::{
             builtins::{BuiltinPrototype, BUILTINS},
             metrics::*,
-            partitioned_epoch_rewards::{
-                EpochRewardCalculateParamInfo, EpochRewardStatus, StakeRewards, VoteRewardsAccounts,
-            },
+            partitioned_epoch_rewards::{EpochRewardStatus, StakeRewards, VoteRewardsAccounts},
         },
         bank_forks::BankForks,
         epoch_stakes::{EpochStakes, NodeVoteAccounts},
@@ -2395,24 +2393,6 @@ impl Bank {
             vote_with_stake_delegations_map,
             invalid_vote_keys,
             vote_accounts_cache_miss_count: vote_accounts_cache_miss_count.into_inner(),
-        }
-    }
-
-    /// calculate and return some reward calc info to avoid recalculation across functions
-    fn get_epoch_reward_calculate_param_info<'a>(
-        &self,
-        stakes: &'a Stakes<StakeAccount<Delegation>>,
-    ) -> EpochRewardCalculateParamInfo<'a> {
-        let stake_history = stakes.history().clone();
-
-        let stake_delegations = self.filter_stake_delegations(stakes);
-
-        let cached_vote_accounts = stakes.vote_accounts();
-
-        EpochRewardCalculateParamInfo {
-            stake_history,
-            stake_delegations,
-            cached_vote_accounts,
         }
     }
 
@@ -5800,7 +5780,7 @@ impl Bank {
         self.rc
             .accounts
             .accounts_db
-            .update_accounts_hash_with_verify(
+            .update_accounts_hash_with_verify_from(
                 // we have to use the index since the slot could be in the write cache still
                 CalcAccountsHashDataSource::IndexForTests,
                 debug_verify,
@@ -5909,7 +5889,7 @@ impl Bank {
             .rc
             .accounts
             .accounts_db
-            .update_accounts_hash_with_verify(
+            .update_accounts_hash_with_verify_from(
                 data_source,
                 debug_verify,
                 self.slot(),
@@ -5934,7 +5914,7 @@ impl Bank {
                 self.rc
                     .accounts
                     .accounts_db
-                    .update_accounts_hash_with_verify(
+                    .update_accounts_hash_with_verify_from(
                         data_source,
                         debug_verify,
                         self.slot(),
