@@ -75,7 +75,6 @@ use {
         native_loader,
         native_token::{sol_to_lamports, LAMPORTS_PER_SOL},
         nonce::{self, state::DurableNonce},
-        nonce_info::NonceFull,
         packet::PACKET_DATA_SIZE,
         poh_config::PohConfig,
         program::MAX_RETURN_DATA,
@@ -102,7 +101,7 @@ use {
         transaction_context::TransactionAccount,
     },
     solana_stake_program::stake_state::{self, StakeStateV2},
-    solana_svm::transaction_results::DurableNonceFee,
+    solana_svm::{nonce_info::NonceFull, transaction_results::DurableNonceFee},
     solana_vote_program::{
         vote_instruction,
         vote_state::{
@@ -2376,7 +2375,7 @@ fn test_insufficient_funds() {
     // transaction_count returns the count of all committed transactions since
     // bank_transaction_count_fix was activated, regardless of success
     assert_eq!(bank.transaction_count(), 2);
-    assert_eq!(bank.non_vote_transaction_count_since_restart(), 1);
+    assert_eq!(bank.non_vote_transaction_count_since_restart(), 2);
 
     let mint_pubkey = mint_keypair.pubkey();
     assert_eq!(bank.get_balance(&mint_pubkey), mint_amount - amount);
