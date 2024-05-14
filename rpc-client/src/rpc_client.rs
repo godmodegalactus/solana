@@ -3616,7 +3616,7 @@ impl RpcClient {
     ///         min_context_slot: Some(1234),
     ///     },
     ///     with_context: Some(false),
-    ///     collect_unsorted: Some(false),
+    ///     sort_results: Some(true),
     /// };
     /// let accounts = rpc_client.get_program_accounts_with_config(
     ///     &alice.pubkey(),
@@ -4382,7 +4382,7 @@ mod tests {
                             min_context_slot: None,
                         },
                         with_context: None,
-                        collect_unsorted: None,
+                        sort_results: None,
                     },
                 )
                 .unwrap();
@@ -4417,7 +4417,7 @@ mod tests {
                             min_context_slot: None,
                         },
                         with_context: Some(true),
-                        collect_unsorted: None,
+                        sort_results: None,
                     },
                 )
                 .unwrap();
