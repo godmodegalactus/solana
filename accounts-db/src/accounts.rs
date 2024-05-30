@@ -2327,7 +2327,7 @@ mod tests {
         assert!(
             Accounts::maybe_abort_scan(ScanResult::Ok(vec![]), &ScanConfig::new(false)).is_ok()
         );
-        let config = ScanConfig::default().recreate_with_abort();
+        let config = ScanConfig::new(false).recreate_with_abort();
         assert!(Accounts::maybe_abort_scan(ScanResult::Ok(vec![]), &config).is_ok());
         config.abort();
         assert!(Accounts::maybe_abort_scan(ScanResult::Ok(vec![]), &config).is_err());
