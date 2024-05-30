@@ -676,7 +676,7 @@ impl AccountsScanner {
             }),
             AccountsOutputMode::Program(program_pubkey) => self
                 .bank
-                .get_program_accounts(program_pubkey, &ScanConfig::default())
+                .get_program_accounts(program_pubkey, &ScanConfig::new(true))
                 .unwrap()
                 .iter()
                 .filter(|(_, account)| self.should_process_account(account))

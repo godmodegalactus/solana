@@ -11162,7 +11162,7 @@ pub mod tests {
             |_, account, _| {
                 accounts.push(account.take_account());
             },
-            &ScanConfig::default(),
+            &ScanConfig::new(true),
         );
         assert_eq!(accounts, vec![account1]);
     });
@@ -11894,7 +11894,7 @@ pub mod tests {
                 |key, _| {
                     found_accounts.insert(*key);
                 },
-                &ScanConfig::default(),
+                &ScanConfig::new(true),
             )
             .unwrap();
         assert_eq!(found_accounts.len(), 2);
@@ -11916,7 +11916,7 @@ pub mod tests {
                     |account| {
                         found_accounts.insert(*account.unwrap().0);
                     },
-                    &ScanConfig::default(),
+                    &ScanConfig::new(true),
                 )
                 .unwrap();
             assert!(!used_index);
@@ -11936,7 +11936,7 @@ pub mod tests {
                     |account| {
                         found_accounts.insert(*account.unwrap().0);
                     },
-                    &ScanConfig::default(),
+                    &ScanConfig::new(true),
                 )
                 .unwrap();
             assert!(used_index);
@@ -11970,7 +11970,7 @@ pub mod tests {
                 bank_id,
                 IndexKey::SplTokenMint(mint_key),
                 |key, _| found_accounts.push(*key),
-                &ScanConfig::default(),
+                &ScanConfig::new(true),
             )
             .unwrap();
         assert_eq!(found_accounts, vec![pubkey2]);
@@ -12264,7 +12264,7 @@ pub mod tests {
             |_, account, _| {
                 accounts.push(account.take_account());
             },
-            &ScanConfig::default(),
+            &ScanConfig::new(true),
         );
         assert_eq!(accounts, vec![account0]);
 
@@ -12276,7 +12276,7 @@ pub mod tests {
             |_, account, _| {
                 accounts.push(account.take_account());
             },
-            &ScanConfig::default(),
+            &ScanConfig::new(true),
         );
         assert_eq!(accounts.len(), 2);
     }
@@ -14038,7 +14038,7 @@ pub mod tests {
                             }
                         }
                     },
-                    &ScanConfig::default(),
+                    &ScanConfig::new(true),
                 )
                 .unwrap();
             })

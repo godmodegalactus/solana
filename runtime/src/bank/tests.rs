@@ -4378,13 +4378,13 @@ fn test_bank_get_program_accounts() {
     bank1.squash();
     assert_eq!(
         bank0
-            .get_program_accounts(&program_id, &ScanConfig::default(),)
+            .get_program_accounts(&program_id, &ScanConfig::new(true),)
             .unwrap(),
         vec![(pubkey0, account0.clone())]
     );
     assert_eq!(
         bank1
-            .get_program_accounts(&program_id, &ScanConfig::default(),)
+            .get_program_accounts(&program_id, &ScanConfig::new(true),)
             .unwrap(),
         vec![(pubkey0, account0)]
     );
@@ -4406,14 +4406,14 @@ fn test_bank_get_program_accounts() {
     bank3.squash();
     assert_eq!(
         bank1
-            .get_program_accounts(&program_id, &ScanConfig::default(),)
+            .get_program_accounts(&program_id, &ScanConfig::new(true),)
             .unwrap()
             .len(),
         2
     );
     assert_eq!(
         bank3
-            .get_program_accounts(&program_id, &ScanConfig::default(),)
+            .get_program_accounts(&program_id, &ScanConfig::new(true),)
             .unwrap()
             .len(),
         2
@@ -4441,7 +4441,7 @@ fn test_get_filtered_indexed_accounts_limit_exceeded() {
         .get_filtered_indexed_accounts(
             &IndexKey::ProgramId(program_id),
             |_| true,
-            &ScanConfig::default(),
+            &ScanConfig::new(true),
             Some(limit), // limit here will be exceeded, resulting in aborted scan
         )
         .is_err());
@@ -4467,7 +4467,7 @@ fn test_get_filtered_indexed_accounts() {
         .get_filtered_indexed_accounts(
             &IndexKey::ProgramId(program_id),
             |_| true,
-            &ScanConfig::default(),
+            &ScanConfig::new(true),
             None,
         )
         .unwrap();
@@ -4485,7 +4485,7 @@ fn test_get_filtered_indexed_accounts() {
         .get_filtered_indexed_accounts(
             &IndexKey::ProgramId(program_id),
             |_| true,
-            &ScanConfig::default(),
+            &ScanConfig::new(true),
             None,
         )
         .unwrap();
@@ -4495,7 +4495,7 @@ fn test_get_filtered_indexed_accounts() {
         .get_filtered_indexed_accounts(
             &IndexKey::ProgramId(another_program_id),
             |_| true,
-            &ScanConfig::default(),
+            &ScanConfig::new(true),
             None,
         )
         .unwrap();
@@ -4507,7 +4507,7 @@ fn test_get_filtered_indexed_accounts() {
         .get_filtered_indexed_accounts(
             &IndexKey::ProgramId(program_id),
             |account| account.owner() == &program_id,
-            &ScanConfig::default(),
+            &ScanConfig::new(true),
             None,
         )
         .unwrap();
@@ -4516,7 +4516,7 @@ fn test_get_filtered_indexed_accounts() {
         .get_filtered_indexed_accounts(
             &IndexKey::ProgramId(another_program_id),
             |account| account.owner() == &another_program_id,
-            &ScanConfig::default(),
+            &ScanConfig::new(true),
             None,
         )
         .unwrap();
@@ -8361,7 +8361,7 @@ fn test_store_scan_consistency<F>(
                     {
                         info!("scanning program accounts for slot {}", bank_to_scan.slot());
                         let accounts_result =
-                            bank_to_scan.get_program_accounts(&program_id, &ScanConfig::default());
+                            bank_to_scan.get_program_accounts(&program_id, &ScanConfig::new(true));
                         let _ = scan_finished_sender.send(bank_to_scan.bank_id());
                         num_banks_scanned.fetch_add(1, Relaxed);
                         match (&acceptable_scan_results, accounts_result.is_err()) {

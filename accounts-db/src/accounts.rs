@@ -287,7 +287,7 @@ impl Accounts {
                     account_balances.push(Reverse((account.lamports(), *pubkey)));
                 }
             },
-            &ScanConfig::default(),
+            &ScanConfig::new(true),
         )?;
         Ok(account_balances
             .into_sorted_vec()
@@ -493,7 +493,7 @@ impl Accounts {
                         collector.push((*pubkey, account, slot))
                     }
                 },
-                &ScanConfig::default(),
+                &ScanConfig::new(true),
             )
             .map(|_| collector)
     }
@@ -508,7 +508,7 @@ impl Accounts {
         F: FnMut(Option<(&Pubkey, AccountSharedData, Slot)>),
     {
         self.accounts_db
-            .scan_accounts(ancestors, bank_id, scan_func, &ScanConfig::default())
+            .scan_accounts(ancestors, bank_id, scan_func, &ScanConfig::new(true))
     }
 
     pub fn hold_range_in_memory<R>(
@@ -2323,7 +2323,10 @@ mod tests {
 
     #[test]
     fn test_maybe_abort_scan() {
-        assert!(Accounts::maybe_abort_scan(ScanResult::Ok(vec![]), &ScanConfig::default()).is_ok());
+        assert!(Accounts::maybe_abort_scan(ScanResult::Ok(vec![]), &ScanConfig::new(true)).is_ok());
+        assert!(
+            Accounts::maybe_abort_scan(ScanResult::Ok(vec![]), &ScanConfig::new(false)).is_ok()
+        );
         let config = ScanConfig::default().recreate_with_abort();
         assert!(Accounts::maybe_abort_scan(ScanResult::Ok(vec![]), &config).is_ok());
         config.abort();

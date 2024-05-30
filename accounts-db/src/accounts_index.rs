@@ -90,7 +90,7 @@ pub enum UpsertReclaim {
     IgnoreReclaims,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ScanConfig {
     /// checked by the scan. When true, abort scan.
     pub abort: Option<Arc<AtomicBool>>,
@@ -104,7 +104,7 @@ impl ScanConfig {
     pub fn new(collect_all_unsorted: bool) -> Self {
         Self {
             collect_all_unsorted,
-            ..ScanConfig::default()
+            abort: None,
         }
     }
 
@@ -2111,7 +2111,7 @@ pub mod tests {
             "",
             &ancestors,
             |_pubkey, _index| num += 1,
-            &ScanConfig::default(),
+            &ScanConfig::new(true),
         );
         assert_eq!(num, 0);
     }
@@ -2240,7 +2240,7 @@ pub mod tests {
             "",
             &ancestors,
             |_pubkey, _index| num += 1,
-            &ScanConfig::default(),
+            &ScanConfig::new(true),
         );
         assert_eq!(num, 0);
     }
@@ -2310,7 +2310,7 @@ pub mod tests {
             "",
             &ancestors,
             |_pubkey, _index| num += 1,
-            &ScanConfig::default(),
+            &ScanConfig::new(true),
         );
         assert_eq!(num, 0);
         ancestors.insert(slot, 0);
@@ -2320,7 +2320,7 @@ pub mod tests {
             "",
             &ancestors,
             |_pubkey, _index| num += 1,
-            &ScanConfig::default(),
+            &ScanConfig::new(true),
         );
         assert_eq!(num, 1);
 
@@ -2344,7 +2344,7 @@ pub mod tests {
             "",
             &ancestors,
             |_pubkey, _index| num += 1,
-            &ScanConfig::default(),
+            &ScanConfig::new(true),
         );
         assert_eq!(num, 0);
         ancestors.insert(slot, 0);
@@ -2354,7 +2354,7 @@ pub mod tests {
             "",
             &ancestors,
             |_pubkey, _index| num += 1,
-            &ScanConfig::default(),
+            &ScanConfig::new(true),
         );
         assert_eq!(num, 1);
     }
@@ -2618,7 +2618,7 @@ pub mod tests {
             "",
             &ancestors,
             |_pubkey, _index| num += 1,
-            &ScanConfig::default(),
+            &ScanConfig::new(true),
         );
         assert_eq!(num, 0);
         ancestors.insert(slot, 0);
@@ -2627,7 +2627,7 @@ pub mod tests {
             "",
             &ancestors,
             |_pubkey, _index| num += 1,
-            &ScanConfig::default(),
+            &ScanConfig::new(true),
         );
         assert_eq!(num, 1);
     }
@@ -2657,7 +2657,7 @@ pub mod tests {
             "",
             &ancestors,
             |_pubkey, _index| num += 1,
-            &ScanConfig::default(),
+            &ScanConfig::new(true),
         );
         assert_eq!(num, 0);
     }
@@ -2799,7 +2799,7 @@ pub mod tests {
                 };
                 num += 1
             },
-            &ScanConfig::default(),
+            &ScanConfig::new(true),
         );
         assert_eq!(num, 1);
         assert!(found_key);
@@ -2872,7 +2872,7 @@ pub mod tests {
             "",
             &ancestors,
             pubkey_range,
-            &ScanConfig::default(),
+            &ScanConfig::new(true),
             |pubkey, _index| {
                 scanned_keys.insert(*pubkey);
             },
@@ -2951,7 +2951,7 @@ pub mod tests {
             |pubkey, _index| {
                 scanned_keys.insert(*pubkey);
             },
-            &ScanConfig::default(),
+            &ScanConfig::new(true),
         );
         assert_eq!(scanned_keys.len(), num_pubkeys);
     }
@@ -3261,7 +3261,7 @@ pub mod tests {
                 };
                 num += 1
             },
-            &ScanConfig::default(),
+            &ScanConfig::new(true),
         );
         assert_eq!(num, 1);
         assert!(found_key);
@@ -4214,8 +4214,12 @@ pub mod tests {
             assert!(!config.is_aborted());
         }
 
-        let config = ScanConfig::default();
+        let config = ScanConfig::new(false);
         assert!(!config.collect_all_unsorted);
+        assert!(config.abort.is_none());
+
+        let config = ScanConfig::new(true);
+        assert!(config.collect_all_unsorted);
         assert!(config.abort.is_none());
 
         let config = config.recreate_with_abort();
