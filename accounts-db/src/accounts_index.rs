@@ -100,6 +100,15 @@ pub struct ScanConfig {
     pub collect_all_unsorted: bool,
 }
 
+impl Default for ScanConfig {
+    fn default() -> Self {
+        Self {
+            abort: None,
+            collect_all_unsorted: true,
+        }
+    }
+}
+
 impl ScanConfig {
     pub fn new(collect_all_unsorted: bool) -> Self {
         Self {
@@ -2111,7 +2120,7 @@ pub mod tests {
             "",
             &ancestors,
             |_pubkey, _index| num += 1,
-            &ScanConfig::new(true),
+            &ScanConfig::default(),
         );
         assert_eq!(num, 0);
     }
@@ -2240,7 +2249,7 @@ pub mod tests {
             "",
             &ancestors,
             |_pubkey, _index| num += 1,
-            &ScanConfig::new(true),
+            &ScanConfig::default(),
         );
         assert_eq!(num, 0);
     }
@@ -2310,7 +2319,7 @@ pub mod tests {
             "",
             &ancestors,
             |_pubkey, _index| num += 1,
-            &ScanConfig::new(true),
+            &ScanConfig::default(),
         );
         assert_eq!(num, 0);
         ancestors.insert(slot, 0);
@@ -2320,7 +2329,7 @@ pub mod tests {
             "",
             &ancestors,
             |_pubkey, _index| num += 1,
-            &ScanConfig::new(true),
+            &ScanConfig::default(),
         );
         assert_eq!(num, 1);
 
@@ -2344,7 +2353,7 @@ pub mod tests {
             "",
             &ancestors,
             |_pubkey, _index| num += 1,
-            &ScanConfig::new(true),
+            &ScanConfig::default(),
         );
         assert_eq!(num, 0);
         ancestors.insert(slot, 0);
@@ -2354,7 +2363,7 @@ pub mod tests {
             "",
             &ancestors,
             |_pubkey, _index| num += 1,
-            &ScanConfig::new(true),
+            &ScanConfig::default(),
         );
         assert_eq!(num, 1);
     }
@@ -2618,7 +2627,7 @@ pub mod tests {
             "",
             &ancestors,
             |_pubkey, _index| num += 1,
-            &ScanConfig::new(true),
+            &ScanConfig::default(),
         );
         assert_eq!(num, 0);
         ancestors.insert(slot, 0);
@@ -2627,7 +2636,7 @@ pub mod tests {
             "",
             &ancestors,
             |_pubkey, _index| num += 1,
-            &ScanConfig::new(true),
+            &ScanConfig::default(),
         );
         assert_eq!(num, 1);
     }
@@ -2657,7 +2666,7 @@ pub mod tests {
             "",
             &ancestors,
             |_pubkey, _index| num += 1,
-            &ScanConfig::new(true),
+            &ScanConfig::default(),
         );
         assert_eq!(num, 0);
     }
@@ -2799,7 +2808,7 @@ pub mod tests {
                 };
                 num += 1
             },
-            &ScanConfig::new(true),
+            &ScanConfig::default(),
         );
         assert_eq!(num, 1);
         assert!(found_key);
@@ -2872,7 +2881,7 @@ pub mod tests {
             "",
             &ancestors,
             pubkey_range,
-            &ScanConfig::new(true),
+            &ScanConfig::default(),
             |pubkey, _index| {
                 scanned_keys.insert(*pubkey);
             },
@@ -2951,7 +2960,7 @@ pub mod tests {
             |pubkey, _index| {
                 scanned_keys.insert(*pubkey);
             },
-            &ScanConfig::new(true),
+            &ScanConfig::default(),
         );
         assert_eq!(scanned_keys.len(), num_pubkeys);
     }
@@ -3261,7 +3270,7 @@ pub mod tests {
                 };
                 num += 1
             },
-            &ScanConfig::new(true),
+            &ScanConfig::default(),
         );
         assert_eq!(num, 1);
         assert!(found_key);
@@ -4218,7 +4227,7 @@ pub mod tests {
         assert!(!config.collect_all_unsorted);
         assert!(config.abort.is_none());
 
-        let config = ScanConfig::new(true);
+        let config = ScanConfig::default();
         assert!(config.collect_all_unsorted);
         assert!(config.abort.is_none());
 

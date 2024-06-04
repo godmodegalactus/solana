@@ -2032,7 +2032,7 @@ fn main() {
 
                     if remove_stake_accounts {
                         for (address, mut account) in bank
-                            .get_program_accounts(&stake::program::id(), &ScanConfig::new(true))
+                            .get_program_accounts(&stake::program::id(), &ScanConfig::new(false))
                             .unwrap()
                             .into_iter()
                         {
@@ -2082,7 +2082,7 @@ fn main() {
 
                     if !vote_accounts_to_destake.is_empty() {
                         for (address, mut account) in bank
-                            .get_program_accounts(&stake::program::id(), &ScanConfig::new(true))
+                            .get_program_accounts(&stake::program::id(), &ScanConfig::new(false))
                             .unwrap()
                             .into_iter()
                         {
@@ -2122,7 +2122,7 @@ fn main() {
                         for (address, mut account) in bank
                             .get_program_accounts(
                                 &solana_vote_program::id(),
-                                &ScanConfig::new(true),
+                                &ScanConfig::new(false),
                             )
                             .unwrap()
                             .into_iter()
