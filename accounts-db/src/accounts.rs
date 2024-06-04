@@ -2350,7 +2350,7 @@ mod tests {
 
     #[test]
     fn test_defualt_for_scan_config() {
-        assert_eq!(ScanConfig::default().collect_all_unsorted, true);
+        assert!(ScanConfig::default().collect_all_unsorted);
     }
 
     #[test]
