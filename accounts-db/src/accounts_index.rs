@@ -113,7 +113,7 @@ impl ScanConfig {
     pub fn new(collect_all_unsorted: bool) -> Self {
         Self {
             collect_all_unsorted,
-            abort: None,
+            ..Default::default()
         }
     }
 

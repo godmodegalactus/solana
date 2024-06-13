@@ -254,7 +254,7 @@ impl Accounts {
         num: usize,
         filter_by_address: &HashSet<Pubkey>,
         filter: AccountAddressFilter,
-        sorted: bool,
+        sort_results: bool,
     ) -> ScanResult<Vec<(Pubkey, u64)>> {
         if num == 0 {
             return Ok(vec![]);
@@ -288,7 +288,7 @@ impl Accounts {
                     account_balances.push(Reverse((account.lamports(), *pubkey)));
                 }
             },
-            &ScanConfig::new(!sorted),
+            &ScanConfig::new(!sort_results),
         )?;
         Ok(account_balances
             .into_sorted_vec()
@@ -481,7 +481,7 @@ impl Accounts {
         &self,
         ancestors: &Ancestors,
         bank_id: BankId,
-        sorted: bool,
+        sort_results: bool,
     ) -> ScanResult<Vec<PubkeyAccountSlot>> {
         let mut collector = Vec::new();
         self.accounts_db
@@ -495,7 +495,7 @@ impl Accounts {
                         collector.push((*pubkey, account, slot))
                     }
                 },
-                &ScanConfig::new(!sorted),
+                &ScanConfig::new(!sort_results),
             )
             .map(|_| collector)
     }
@@ -505,13 +505,17 @@ impl Accounts {
         ancestors: &Ancestors,
         bank_id: BankId,
         scan_func: F,
-        sorted: bool,
+        sort_results: bool,
     ) -> ScanResult<()>
     where
         F: FnMut(Option<(&Pubkey, AccountSharedData, Slot)>),
     {
-        self.accounts_db
-            .scan_accounts(ancestors, bank_id, scan_func, &ScanConfig::new(!sorted))
+        self.accounts_db.scan_accounts(
+            ancestors,
+            bank_id,
+            scan_func,
+            &ScanConfig::new(!sort_results),
+        )
     }
 
     pub fn hold_range_in_memory<R>(
@@ -2346,11 +2350,6 @@ mod tests {
         assert!(Accounts::maybe_abort_scan(ScanResult::Ok(vec![]), &config).is_ok());
         config.abort();
         assert!(Accounts::maybe_abort_scan(ScanResult::Ok(vec![]), &config).is_err());
-    }
-
-    #[test]
-    fn test_defualt_for_scan_config() {
-        assert!(ScanConfig::default().collect_all_unsorted);
     }
 
     #[test]

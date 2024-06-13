@@ -5304,10 +5304,10 @@ impl Bank {
     }
 
     /// Returns all the accounts this bank can load
-    pub fn get_all_accounts(&self, sorted: bool) -> ScanResult<Vec<PubkeyAccountSlot>> {
+    pub fn get_all_accounts(&self, sort_results: bool) -> ScanResult<Vec<PubkeyAccountSlot>> {
         self.rc
             .accounts
-            .load_all(&self.ancestors, self.bank_id, sorted)
+            .load_all(&self.ancestors, self.bank_id, sort_results)
     }
 
     // Scans all the accounts this bank can load, applying `scan_func`
