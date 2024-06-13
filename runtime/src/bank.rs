@@ -5311,13 +5311,13 @@ impl Bank {
     }
 
     // Scans all the accounts this bank can load, applying `scan_func`
-    pub fn scan_all_accounts<F>(&self, scan_func: F, sorted: bool) -> ScanResult<()>
+    pub fn scan_all_accounts<F>(&self, scan_func: F, sort_results: bool) -> ScanResult<()>
     where
         F: FnMut(Option<(&Pubkey, AccountSharedData, Slot)>),
     {
         self.rc
             .accounts
-            .scan_all(&self.ancestors, self.bank_id, scan_func, sorted)
+            .scan_all(&self.ancestors, self.bank_id, scan_func, sort_results)
     }
 
     pub fn get_program_accounts_modified_since_parent(
@@ -5363,7 +5363,7 @@ impl Bank {
         num: usize,
         filter_by_address: &HashSet<Pubkey>,
         filter: AccountAddressFilter,
-        sorted: bool,
+        sort_results: bool,
     ) -> ScanResult<Vec<(Pubkey, u64)>> {
         self.rc.accounts.load_largest_accounts(
             &self.ancestors,
@@ -5371,7 +5371,7 @@ impl Bank {
             num,
             filter_by_address,
             filter,
-            sorted,
+            sort_results,
         )
     }
 
