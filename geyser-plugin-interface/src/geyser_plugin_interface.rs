@@ -132,6 +132,7 @@ pub struct ReplicaPreviousAccountInfo<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Information about an account being updated
 /// (extended with reference to transaction doing this update)
+/// (extended with the prior state of the account)
 pub struct ReplicaAccountInfoV4<'a> {
     /// The Pubkey for the account
     pub pubkey: &'a [u8],
