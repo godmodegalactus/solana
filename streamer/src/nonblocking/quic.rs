@@ -210,6 +210,7 @@ async fn run_server(
     wait_for_chunk_timeout: Duration,
     coalesce: Duration,
 ) {
+    log::debug!("Starting quic server");
     let rate_limiter = ConnectionRateLimiter::new(max_connections_per_ipaddr_per_min);
     let mut overall_connection_rate_limiter =
         TotalConnectionRateLimiter::new(TOTAL_CONNECTIONS_PER_SECOND);
@@ -227,6 +228,7 @@ async fn run_server(
     let staked_connection_table: Arc<Mutex<ConnectionTable>> =
         Arc::new(Mutex::new(ConnectionTable::new()));
     let (sender, receiver) = async_unbounded();
+    log::debug!("Starting packet batch sender");
     tokio::spawn(packet_batch_sender(
         packet_sender,
         receiver,
@@ -235,8 +237,10 @@ async fn run_server(
         coalesce,
     ));
     while !exit.load(Ordering::Relaxed) {
+        log::debug!("Starting to listen");
         let timeout_connection = timeout(WAIT_FOR_CONNECTION_TIMEOUT, incoming.accept()).await;
 
+        log::debug!("Connection accepted");
         if last_datapoint.elapsed().as_secs() >= 5 {
             stats.report(name);
             last_datapoint = Instant::now();
@@ -569,9 +573,11 @@ async fn setup_connection(
 ) {
     const PRUNE_RANDOM_SAMPLE_SIZE: usize = 2;
     let from = connecting.remote_address();
+    log::debug!("Connecting from {:?}", from);
     if let Ok(connecting_result) = timeout(QUIC_CONNECTION_HANDSHAKE_TIMEOUT, connecting).await {
         match connecting_result {
             Ok(new_connection) => {
+                log::debug!("Connected stream from {:?}", from);
                 stats.total_new_connections.fetch_add(1, Ordering::Relaxed);
 
                 let params = get_connection_stake(&new_connection, &staked_nodes).map_or(
