@@ -445,9 +445,11 @@ fn serialize_parameters_aligned(
                 + MAX_PERMITTED_DATA_INCREASE
                 + size_of::<u64>(); // rent epoch
                 if copy_account_data {
-                    size += data_len + (data_len as *const u8).align_offset(BPF_ALIGN_OF_U128);
+                    let align_offset = (data_len as *const u8).align_offset(BPF_ALIGN_OF_U128);
+                    size += data_len + align_offset;
+                    size += MAX_PERMITTED_DATA_INCREASE + align_offset;
                 } else {
-                    size += BPF_ALIGN_OF_U128;
+                    size += MAX_PERMITTED_DATA_INCREASE + BPF_ALIGN_OF_U128;
                 }
             }
         }
