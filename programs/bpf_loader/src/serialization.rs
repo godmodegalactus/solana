@@ -42,7 +42,7 @@ struct Serializer {
 impl Serializer {
     fn new(size: usize, start_addr: u64, aligned: bool, copy_account_data: bool) -> Serializer {
         Serializer {
-            buffer: AlignedMemory::with_capacity(size),
+            buffer: AlignedMemory::with_capacity_zeroed(size),
             regions: Vec::new(),
             region_start: 0,
             vaddr: start_addr,
@@ -456,7 +456,7 @@ fn serialize_parameters_aligned(
     }
     size += size_of::<u64>() // data len
     + instruction_data.len()
-    + size_of::<Pubkey>() + 32; // program id;
+    + size_of::<Pubkey>() + 32; // program id and make the buffer litlle bigger to avoid reallocation; 
 
     let mut s = Serializer::new(size, MM_INPUT_START, true, copy_account_data);
 
@@ -496,7 +496,6 @@ fn serialize_parameters_aligned(
     s.write_all(program_id.as_ref());
 
     let (mem, regions) = s.finish();
-    log::warn!("serialized len: {:?} expected len {:?}", mem.len(), size);
     Ok((mem, regions, accounts_metadata))
 }
 
