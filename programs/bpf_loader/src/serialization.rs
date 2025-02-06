@@ -496,6 +496,7 @@ fn serialize_parameters_aligned(
     s.write_all(program_id.as_ref());
 
     let (mem, regions) = s.finish();
+    log::warn!("serialized len: {:?} expected len {:?}", mem.len(), size);
     Ok((mem, regions, accounts_metadata))
 }
 
