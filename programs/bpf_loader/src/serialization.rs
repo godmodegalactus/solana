@@ -455,7 +455,7 @@ fn serialize_parameters_aligned(
     }
     size += size_of::<u64>() // data len
     + instruction_data.len()
-    + size_of::<Pubkey>(); // program id; reserve 32 bytes as extra space to avoid reallocation
+    + size_of::<Pubkey>(); // program id;
 
     let mut s = Serializer::new(size, MM_INPUT_START, true, copy_account_data);
 
