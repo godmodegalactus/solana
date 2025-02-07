@@ -494,6 +494,9 @@ fn serialize_parameters_aligned(
     s.write_all(program_id.as_ref());
 
     let (mem, regions) = s.finish();
+    if size != mem.len() as usize {
+        log::error!("expected size: {}, actual size: {}", size, mem.len());
+    }
     Ok((mem, regions, accounts_metadata))
 }
 
