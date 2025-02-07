@@ -40,7 +40,7 @@ struct Serializer {
 impl Serializer {
     fn new(size: usize, start_addr: u64, aligned: bool, copy_account_data: bool) -> Serializer {
         Serializer {
-            buffer: AlignedMemory::with_capacity(size),
+            buffer: AlignedMemory::with_capacity_zeroed(size),
             regions: Vec::new(),
             region_start: 0,
             vaddr: start_addr,
@@ -437,24 +437,26 @@ fn serialize_parameters_aligned(
                 size += size_of::<u8>() // is_signer
                 + size_of::<u8>() // is_writable
                 + size_of::<u8>() // executable
-                + size_of::<u32>() // original_data_len
+                + 4 // padding  of 4 bytes after executable
+                + size_of::<u64>() // original_data_len
                 + size_of::<Pubkey>()  // key
                 + size_of::<Pubkey>() // owner
                 + size_of::<u64>()  // lamports
                 + size_of::<u64>()  // data len
-                + MAX_PERMITTED_DATA_INCREASE
                 + size_of::<u64>(); // rent epoch
                 if copy_account_data {
-                    size += data_len + (data_len as *const u8).align_offset(BPF_ALIGN_OF_U128);
+                    let align_offset = (data_len as *const u8).align_offset(BPF_ALIGN_OF_U128);
+                    size += data_len + align_offset;
+                    size += MAX_PERMITTED_DATA_INCREASE + align_offset;
                 } else {
-                    size += BPF_ALIGN_OF_U128;
+                    size += MAX_PERMITTED_DATA_INCREASE + BPF_ALIGN_OF_U128;
                 }
             }
         }
     }
     size += size_of::<u64>() // data len
     + instruction_data.len()
-    + size_of::<Pubkey>(); // program id;
+    + size_of::<Pubkey>() + 32; // program id; reserve 32 bytes as extra space to avoid reallocation
 
     let mut s = Serializer::new(size, MM_INPUT_START, true, copy_account_data);
 
